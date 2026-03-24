@@ -55,17 +55,22 @@ export interface GradeRecord {
   essay_id: string;
   criterion_name: string;
   criterion_id: string;
+  score_min: number;
+  score_max: number;
   teacher_score: number | null;
   ai_score: number | null;
   revised_ai_score: number | null;
-  assessment_text: string | null;
-  revised_assessment_text: string | null;
-  revision_rationale: string | null;
+  score_difference: number | null;
+  assessment_type: string;
+  assessment_length: string;
+  hallucination_threshold: string;
+  evidence_count: number;
   time_spent_seconds: number | null;
   hallucinations_detected: number;
   hallucinations_confirmed: number;
   hallucinations_reported: number;
   action_type: string;
+  avg_teacher_score_for_criterion: number | null;
 }
 
 export type AssessmentType = 'flow' | 'bullets';

@@ -341,16 +341,22 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     if (assessment && recorder) {
       const elapsedMs = criterionStartTime ? Date.now() - criterionStartTime : 0;
       const hCounts = hallucinationCounts[criterion.name] ?? { detected: 0, confirmed: 0, reported: 0 };
+      const tScore = teacherScores[criterion.name] ?? null;
+      const aScore = assessment.aiScore;
       recorder.addGradeRecord({
         essay_id: essayFileName || '',
         criterion_name: criterion.name,
         criterion_id: String(criterion.id),
-        teacher_score: teacherScores[criterion.name] ?? null,
-        ai_score: assessment.aiScore,
-        revised_ai_score: assessment.originalAiScore !== assessment.aiScore ? assessment.aiScore : null,
-        assessment_text: typeof assessment.justification === 'string' ? assessment.justification : assessment.justification.join('\n'),
-        revised_assessment_text: assessment.revisedAssessmentText,
-        revision_rationale: assessment.revisionRationale,
+        score_min: criterion.scoreRange.min,
+        score_max: criterion.scoreRange.max,
+        teacher_score: tScore,
+        ai_score: aScore,
+        revised_ai_score: assessment.originalAiScore !== aScore ? aScore : null,
+        score_difference: tScore !== null && aScore !== null ? tScore - aScore : null,
+        assessment_type: assessmentType,
+        assessment_length: assessmentLength,
+        hallucination_threshold: hallucinationThreshold,
+        evidence_count: assessment.evidence?.length ?? 0,
         time_spent_seconds: Math.round(elapsedMs / 1000),
         hallucinations_detected: hCounts.detected,
         hallucinations_confirmed: hCounts.confirmed,
@@ -381,6 +387,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     essayFileName,
     gradeCurrentCriterion,
     hallucinationCounts,
+    assessmentType,
+    assessmentLength,
+    hallucinationThreshold,
   ]);
 
   /* -------------------------------------------------------------------------- */
@@ -406,16 +415,22 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
       if (assessment && recorder) {
         const elapsedMs = criterionStartTime ? Date.now() - criterionStartTime : 0;
         const hCounts = hallucinationCounts[criterion.name] ?? { detected: 0, confirmed: 0, reported: 0 };
+        const tScore = teacherScores[criterion.name] ?? null;
+        const aScore = assessment.aiScore;
         recorder.addGradeRecord({
           essay_id: essayFileName || '',
           criterion_name: criterion.name,
           criterion_id: String(criterion.id),
-          teacher_score: teacherScores[criterion.name] ?? null,
-          ai_score: assessment.aiScore,
-          revised_ai_score: assessment.originalAiScore !== assessment.aiScore ? assessment.aiScore : null,
-          assessment_text: typeof assessment.justification === 'string' ? assessment.justification : assessment.justification.join('\n'),
-          revised_assessment_text: assessment.revisedAssessmentText,
-          revision_rationale: assessment.revisionRationale,
+          score_min: criterion.scoreRange.min,
+          score_max: criterion.scoreRange.max,
+          teacher_score: tScore,
+          ai_score: aScore,
+          revised_ai_score: assessment.originalAiScore !== aScore ? aScore : null,
+          score_difference: tScore !== null && aScore !== null ? tScore - aScore : null,
+          assessment_type: assessmentType,
+          assessment_length: assessmentLength,
+          hallucination_threshold: hallucinationThreshold,
+          evidence_count: assessment.evidence?.length ?? 0,
           time_spent_seconds: Math.round(elapsedMs / 1000),
           hallucinations_detected: hCounts.detected,
           hallucinations_confirmed: hCounts.confirmed,
@@ -462,6 +477,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     pdfContent,
     contextList,
     hallucinationCounts,
+    assessmentType,
+    assessmentLength,
+    hallucinationThreshold,
   ]);
 
   /* -------------------------------------------------------------------------- */

@@ -1,6 +1,5 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   GraduationCap,
@@ -9,8 +8,6 @@ import {
   BarChart3,
   FlaskConical,
   User,
-  Sun,
-  Moon,
   Download,
 } from 'lucide-react';
 
@@ -31,28 +28,6 @@ const navLinks: { view: ViewType; label: string; icon: React.ElementType }[] = [
 ];
 
 export default function Navbar({ currentView, onNavigate, teacherName, onExportCSV }: NavbarProps) {
-  const [isDark, setIsDark] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem('theme');
-    if (stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      setIsDark(true);
-      document.documentElement.classList.add('dark');
-    }
-  }, []);
-
-  const toggleTheme = () => {
-    const next = !isDark;
-    setIsDark(next);
-    if (next) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  };
-
   return (
     <nav className="sticky top-4 z-40 mx-4 rounded-2xl border border-[var(--navbar-border)] bg-[var(--navbar-bg)] px-4 py-2.5 backdrop-blur-xl">
       <div className="flex items-center justify-between">
@@ -102,15 +77,6 @@ export default function Navbar({ currentView, onNavigate, teacherName, onExportC
             <User className="h-4 w-4 text-indigo-500" />
             <span className="max-w-[120px] truncate">{teacherName}</span>
           </div>
-
-          {/* Theme toggle */}
-          <button
-            onClick={toggleTheme}
-            className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg text-[var(--muted)] transition-colors duration-200 hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </button>
 
           {/* Export CSV */}
           <button

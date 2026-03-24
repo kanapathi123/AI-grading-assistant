@@ -13,21 +13,6 @@
 }
 
 :root {
-  --background: #F5F3FF;
-  --foreground: #1E1B4B;
-  --card-bg: #ffffff;
-  --card-border: #E2E0F5;
-  --muted: #94A3B8;
-  --navbar-bg: rgba(255, 255, 255, 0.8);
-  --navbar-border: rgba(99, 102, 241, 0.15);
-  --input-bg: #ffffff;
-  --input-border: #CBD5E1;
-  --input-focus-border: #6366F1;
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.3);
-}
-
-.dark {
   --background: #0F172A;
   --foreground: #E2E8F0;
   --card-bg: #1E293B;
@@ -81,11 +66,11 @@ body {
   background: rgba(99, 102, 241, 0.5);
 }
 
-.dark ::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background: rgba(129, 140, 248, 0.3);
 }
 
-.dark ::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: rgba(129, 140, 248, 0.5);
 }
 

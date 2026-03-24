@@ -6,17 +6,22 @@ const CSV_HEADERS = [
   'essay_id',
   'criterion_name',
   'criterion_id',
+  'score_min',
+  'score_max',
   'teacher_score',
   'ai_score',
   'revised_ai_score',
-  'assessment_text',
-  'revised_assessment_text',
-  'revision_rationale',
+  'score_difference',
+  'assessment_type',
+  'assessment_length',
+  'hallucination_threshold',
+  'evidence_count',
   'time_spent_seconds',
   'hallucinations_detected',
   'hallucinations_confirmed',
   'hallucinations_reported',
   'action_type',
+  'avg_teacher_score_for_criterion',
 ] as const;
 
 function escapeCSVField(value: string | number | null | undefined): string {
@@ -40,14 +45,29 @@ export class CsvRecorder {
     this.loadFromLocalStorage();
   }
 
-  addGradeRecord(record: Omit<GradeRecord, 'timestamp' | 'teacher_name'>): void {
+  addGradeRecord(record: Omit<GradeRecord, 'timestamp' | 'teacher_name' | 'avg_teacher_score_for_criterion'>): void {
+    const avg = this.computeAvgTeacherScore(record.criterion_name, record.teacher_score);
     const fullRecord: GradeRecord = {
       ...record,
       timestamp: new Date().toISOString(),
       teacher_name: this.teacherName,
+      avg_teacher_score_for_criterion: avg,
     };
     this.records.push(fullRecord);
     this.saveToLocalStorage();
+  }
+
+  private computeAvgTeacherScore(criterionName: string, currentScore: number | null): number | null {
+    const scores: number[] = [];
+    for (const r of this.records) {
+      if (r.criterion_name === criterionName && r.teacher_score !== null) {
+        scores.push(r.teacher_score);
+      }
+    }
+    if (currentScore !== null) scores.push(currentScore);
+    if (scores.length === 0) return null;
+    const sum = scores.reduce((a, b) => a + b, 0);
+    return Math.round((sum / scores.length) * 100) / 100;
   }
 
   getCSVContent(): string {
