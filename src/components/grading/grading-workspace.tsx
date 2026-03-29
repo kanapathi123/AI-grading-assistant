@@ -362,6 +362,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
         hallucinations_confirmed: hCounts.confirmed,
         hallucinations_reported: hCounts.reported,
         action_type: 'grade',
+        assessment_was_edited: assessment.revisedAssessmentText !== null,
+        original_ai_score: assessment.originalAiScore,
+        edited_justification_text: assessment.revisedAssessmentText ?? null,
       });
     }
 
@@ -436,6 +439,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
           hallucinations_confirmed: hCounts.confirmed,
           hallucinations_reported: hCounts.reported,
           action_type: 'grade',
+          assessment_was_edited: assessment.revisedAssessmentText !== null,
+          original_ai_score: assessment.originalAiScore,
+          edited_justification_text: assessment.revisedAssessmentText ?? null,
         });
       }
     }

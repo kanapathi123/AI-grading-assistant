@@ -20,7 +20,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${plusJakartaSans.variable} dark h-full`}>
+    <html lang="en" className={`${plusJakartaSans.variable} h-full`} suppressHydrationWarning>
+      <head>
+        {/* Inline theme script — hardcoded string, no user input, safe from XSS */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme');if(t!=='light')document.documentElement.classList.add('dark')}catch(e){}})()` }} />
+      </head>
       <body className="min-h-screen font-sans antialiased">{children}</body>
     </html>
   );

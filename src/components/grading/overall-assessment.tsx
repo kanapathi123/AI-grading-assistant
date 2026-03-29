@@ -29,12 +29,8 @@ export default function OverallAssessment({
   );
 
   function getFinalScore(criterion: Assessment): string {
-    const teacherScore = teacherScores[criterion.name];
-    const aiScore = criterion.aiScore;
-    if (teacherScore != null && aiScore != null) {
-      return String(Math.round((teacherScore + aiScore) / 2));
-    }
-    return String(teacherScore ?? aiScore ?? '-');
+    const tScore = teacherScores[criterion.name];
+    return tScore != null ? String(tScore) : '-';
   }
 
   return (

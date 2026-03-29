@@ -21,10 +21,13 @@ const CSV_HEADERS = [
   'hallucinations_confirmed',
   'hallucinations_reported',
   'action_type',
+  'assessment_was_edited',
+  'original_ai_score',
+  'edited_justification_text',
   'avg_teacher_score_for_criterion',
 ] as const;
 
-function escapeCSVField(value: string | number | null | undefined): string {
+function escapeCSVField(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return '';
   const str = String(value);
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {

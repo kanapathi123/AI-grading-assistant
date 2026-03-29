@@ -40,11 +40,15 @@ function normalize(s: string): string {
   return s.replace(/[\s\u00A0]+/g, ' ').trim().toLowerCase();
 }
 
-/** Extract significant word sequences (6+ chars) from a quote for fuzzy matching */
-function extractSignificantWords(quote: string): string[] {
-  return normalize(quote)
-    .split(/\s+/)
-    .filter(w => w.length >= 6);
+/** Build sliding windows of N consecutive words from normalized text */
+function buildWindows(text: string, windowSize: number): string[] {
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  if (words.length < windowSize) return [text];
+  const windows: string[] = [];
+  for (let i = 0; i <= words.length - windowSize; i++) {
+    windows.push(words.slice(i, i + windowSize).join(' '));
+  }
+  return windows;
 }
 
 export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
@@ -71,68 +75,44 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
   const zoomIn = () => setScale((prev) => Math.min(2.5, prev + 0.15));
   const zoomOut = () => setScale((prev) => Math.max(0.5, prev - 0.15));
 
-  // Build lookup structures for matching
-  const matchData = useMemo(() => {
+  // Build normalized quote phrases for substring matching
+  const phrases = useMemo(() => {
     if (!highlights.length) return null;
-
-    // For each highlight, extract key words and build a word->criteria map
-    const wordToCriteria = new Map<string, Set<string>>();
-    const fullPhrases: { normalized: string; criterionName: string }[] = [];
-
-    for (const h of highlights) {
-      const norm = normalize(h.text);
-      fullPhrases.push({ normalized: norm, criterionName: h.criterionName });
-
-      const words = extractSignificantWords(h.text);
-      for (const w of words) {
-        if (!wordToCriteria.has(w)) wordToCriteria.set(w, new Set());
-        wordToCriteria.get(w)!.add(h.criterionName);
-      }
-    }
-
-    return { wordToCriteria, fullPhrases };
+    return highlights.map(h => ({
+      // Extract 3-word sliding windows from each quote for matching
+      windows: buildWindows(normalize(h.text), 3),
+      criterionName: h.criterionName,
+    }));
   }, [highlights]);
 
   const customTextRenderer = useCallback(
     (textItem: { str: string }) => {
-      if (!matchData) return textItem.str;
+      if (!phrases) return textItem.str;
 
       const str = textItem.str;
       const normStr = normalize(str);
-      if (!normStr || normStr.length < 5) return str;
+      if (!normStr || normStr.length < 12) return str;
 
-      // Check if this text chunk is part of a quote (needs significant word matches)
-      const words = normStr.split(/\s+/);
-      const matchedCriteria = new Set<string>();
-      let matchCount = 0;
-
-      for (const word of words) {
-        if (word.length < 6) continue;
-        const criteria = matchData.wordToCriteria.get(word);
-        if (criteria) {
-          matchCount++;
-          for (const c of criteria) matchedCriteria.add(c);
+      // Check if this text chunk matches a 3-word window from any quote
+      for (const phrase of phrases) {
+        for (const window of phrase.windows) {
+          // Both the chunk and window must have meaningful length overlap
+          if (window.length < 10) continue;
+          if (normStr.includes(window)) {
+            const color = getColorForCriterion(phrase.criterionName);
+            return `<mark class="pdf-hl" style="background:${color.bg};--hl-color:${color.border};" data-criteria="${phrase.criterionName}">${str}</mark>`;
+          }
+          // Only match if the chunk is a substantial substring of the window (>60% of chunk)
+          if (window.includes(normStr) && normStr.length > window.length * 0.4) {
+            const color = getColorForCriterion(phrase.criterionName);
+            return `<mark class="pdf-hl" style="background:${color.bg};--hl-color:${color.border};" data-criteria="${phrase.criterionName}">${str}</mark>`;
+          }
         }
       }
 
-      // Also check if any full phrase contains this text or vice versa
-      for (const phrase of matchData.fullPhrases) {
-        if (phrase.normalized.includes(normStr) && normStr.length >= 15) {
-          matchedCriteria.add(phrase.criterionName);
-          matchCount = 3; // force match
-        }
-      }
-
-      // Require at least 2 significant word matches to highlight, or a phrase match
-      if (matchCount < 2 || matchedCriteria.size === 0) return str;
-
-      const criteriaNames = [...matchedCriteria];
-      const color = getColorForCriterion(criteriaNames[0]);
-      const tooltip = criteriaNames.join(', ');
-
-      return `<mark class="pdf-hl" style="background:${color.bg};" data-criteria="${tooltip}">${str}</mark>`;
+      return str;
     },
-    [matchData],
+    [phrases],
   );
 
   if (!url) {
@@ -237,11 +217,12 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
           {!error && (
             <div className="flex justify-center">
               <Page
+                key={`${pageNumber}-hl${highlights.length}`}
                 pageNumber={pageNumber}
                 scale={scale}
                 className="shadow-lg"
                 loading={null}
-                customTextRenderer={matchData ? customTextRenderer : undefined}
+                customTextRenderer={phrases ? customTextRenderer : undefined}
               />
             </div>
           )}

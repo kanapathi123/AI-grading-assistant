@@ -70,6 +70,9 @@ export interface GradeRecord {
   hallucinations_confirmed: number;
   hallucinations_reported: number;
   action_type: string;
+  assessment_was_edited: boolean;
+  original_ai_score: number | null;
+  edited_justification_text: string | null;
   avg_teacher_score_for_criterion: number | null;
 }
 

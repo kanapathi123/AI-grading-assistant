@@ -81,6 +81,9 @@ export default function EvidenceSection({
                       <MapPin className="h-3 w-3" />
                       {item.paragraph || 'Essay excerpt'}
                     </span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                      Evidence #{idx + 1}
+                    </span>
                   </div>
 
                   {/* Blockquote */}

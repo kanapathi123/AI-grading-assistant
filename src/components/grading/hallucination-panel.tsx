@@ -60,7 +60,7 @@ export default function HallucinationPanel({
   onHallucinationDetected,
 }: HallucinationPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabId>('verification');
+  const [activeTab, setActiveTab] = useState<TabId>('issues');
   const [hallucinations, setHallucinations] = useState<DetectedHallucination[]>([]);
   const [reportedItems, setReportedItems] = useState<DetectedHallucination[]>([]);
   const [reportModalOpen, setReportModalOpen] = useState(false);
@@ -113,6 +113,8 @@ export default function HallucinationPanel({
   const pendingCount = hallucinations.filter((h) => h.status === 'detected').length;
   const confirmedCount = hallucinations.filter((h) => h.status === 'confirmed').length;
 
+  const allClear = notFoundCount === 0 && reportedItems.length === 0;
+
   const handleConfirm = useCallback((id: string) => {
     setHallucinations((prev) =>
       prev.map((h) => (h.id === id ? { ...h, status: 'confirmed' as const } : h))
@@ -154,7 +156,6 @@ export default function HallucinationPanel({
   }
 
   const tabs: { id: TabId; label: string }[] = [
-    { id: 'verification', label: 'Quote Verification' },
     { id: 'issues', label: 'Issues' },
     { id: 'reported', label: 'Reported' },
   ];
@@ -173,17 +174,26 @@ export default function HallucinationPanel({
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/30 shadow-sm dark:border-amber-800/40 dark:bg-amber-950/10">
+    <div className={`mt-4 rounded-xl border shadow-sm ${allClear ? 'border-green-200 bg-green-50/30 dark:border-green-800/40 dark:bg-green-950/10' : 'border-amber-200 bg-amber-50/30 dark:border-amber-800/40 dark:bg-amber-950/10'}`}>
       {/* Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="cursor-pointer flex w-full items-center justify-between px-5 py-4"
       >
         <div className="flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5 text-[#F59E0B]" />
+          {allClear ? (
+            <ShieldCheck className="h-5 w-5 text-[#10B981]" />
+          ) : (
+            <AlertTriangle className="h-5 w-5 text-[#F59E0B]" />
+          )}
           <span className="text-sm font-semibold text-[#1E1B4B] dark:text-[#E2E8F0]">
             Hallucination Check
           </span>
+          {allClear && (
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-[#10B981] dark:bg-green-900/30 dark:text-green-400">
+              All Clear
+            </span>
+          )}
           {notFoundCount > 0 && (
             <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-[#EF4444] dark:bg-red-900/40 dark:text-red-400">
               {notFoundCount}
@@ -231,7 +241,22 @@ export default function HallucinationPanel({
             transition={{ duration: 0.3 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-amber-200 dark:border-amber-800/40">
+            <div className={`border-t ${allClear ? 'border-green-200 dark:border-green-800/40' : 'border-amber-200 dark:border-amber-800/40'}`}>
+              {allClear && (
+                <div className="flex flex-col items-center gap-3 px-5 py-8">
+                  <ShieldCheck className="h-10 w-10 text-[#10B981]" />
+                  <p className="text-sm font-medium text-[#10B981]">No hallucinations detected</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">All {verificationResults.length} evidence quotes were verified in the essay.</p>
+                  <button
+                    onClick={() => setReportModalOpen(true)}
+                    className="cursor-pointer mt-1 inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
+                  >
+                    <Flag className="h-3.5 w-3.5" />
+                    Report a Hallucination Manually
+                  </button>
+                </div>
+              )}
+              {!allClear && <>
               {/* Tabs */}
               <div className="flex border-b border-amber-200 dark:border-amber-800/40">
                 {tabs.map((tab) => (
@@ -452,8 +477,9 @@ export default function HallucinationPanel({
                 )}
               </div>
 
+              </>}
               {/* Footer */}
-              <div className="flex items-center gap-4 border-t border-amber-200 px-5 py-3 dark:border-amber-800/40">
+              <div className={`flex items-center gap-4 border-t px-5 py-3 ${allClear ? 'border-green-200 dark:border-green-800/40' : 'border-amber-200 dark:border-amber-800/40'}`}>
                 <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                   <ShieldAlert className="h-3.5 w-3.5 text-[#F59E0B]" />
                   Pending Review: {pendingCount}

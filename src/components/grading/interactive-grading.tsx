@@ -15,6 +15,7 @@ import {
 import type { Criterion, Assessment, Evidence, ContextItem, AssessmentType, AssessmentLength, HallucinationThreshold, OverallAssessmentResult } from '@/types';
 import { reviseCriterionScoreWithJustification } from '@/lib/gemini-service';
 import AssessmentSection from '@/components/grading/assessment-section';
+import EvidenceSection from '@/components/grading/evidence-section';
 import HallucinationPanel from '@/components/grading/hallucination-panel';
 import EditJustificationModal from '@/components/grading/edit-justification-modal';
 import PdfViewer, { PdfHighlight } from '@/components/grading/pdf-viewer';
@@ -108,6 +109,8 @@ export default function InteractiveGrading({
   const [showHallucinationPopup, setShowHallucinationPopup] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [hoveredEvidenceIndex, setHoveredEvidenceIndex] = useState<number | null>(null);
 
   /* ---- derived ---- */
   const criterion = rubricCriteria[currentCriterionIndex] ?? null;
@@ -128,13 +131,34 @@ export default function InteractiveGrading({
     return opts;
   }, [criterion]);
 
-  /* ---- build highlights from all assessed criteria evidence ---- */
+  /* ---- build highlights from all assessed criteria evidence + justification quotes ---- */
   const pdfHighlights = useMemo<PdfHighlight[]>(() => {
     const result: PdfHighlight[] = [];
     for (const [name, a] of Object.entries(criteriaAssessments)) {
+      // Dedup only within the same criterion
+      const seenInCriterion = new Set<string>();
       if (a?.evidence) {
         for (const ev of a.evidence) {
-          result.push({ text: ev.quote, criterionName: name });
+          const key = ev.quote.toLowerCase().trim();
+          if (!seenInCriterion.has(key)) {
+            seenInCriterion.add(key);
+            result.push({ text: ev.quote, criterionName: name });
+          }
+        }
+      }
+      // Also extract inline quotes from justification (text between quotation marks)
+      if (a?.justification) {
+        const justText = typeof a.justification === 'string' ? a.justification : a.justification.join(' ');
+        const quoteMatches = justText.match(/[""\u201C\u201D]([^""\u201C\u201D]{20,}?)[""\u201C\u201D]/g);
+        if (quoteMatches) {
+          for (const m of quoteMatches) {
+            const cleaned = m.replace(/^[""\u201C\u201D]|[""\u201C\u201D]$/g, '').trim();
+            const key = cleaned.toLowerCase();
+            if (cleaned.length >= 20 && !seenInCriterion.has(key)) {
+              seenInCriterion.add(key);
+              result.push({ text: cleaned, criterionName: name });
+            }
+          }
         }
       }
     }
@@ -378,8 +402,34 @@ export default function InteractiveGrading({
             </motion.div>
           )}
 
+          {/* ---- Error with retry ---- */}
+          {assessment?.error && (
+            <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-800/40 dark:bg-red-950/20">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 flex-shrink-0 text-[#EF4444]" />
+                <div>
+                  <p className="text-sm font-medium text-[#EF4444]">
+                    Failed to grade this criterion
+                  </p>
+                  <p className="mt-0.5 text-xs text-red-400">
+                    {assessment.error === 'EMPTY_RESPONSE' ? 'The AI returned an empty response.' :
+                     assessment.error === 'MODEL_OVERLOADED' ? 'The AI model is overloaded. Try again in a moment.' :
+                     assessment.error === 'REQUEST_FAILED' ? 'Network error — check your connection.' :
+                     assessment.error}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => gradeCurrentCriterion(rubricCriteria, currentCriterionIndex)}
+                className="cursor-pointer flex-shrink-0 rounded-lg bg-[#EF4444] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* ---- Assessment section ---- */}
-          {assessment && (
+          {assessment && !assessment.error && (
             <AssessmentSection
               assessmentType={assessmentType}
               currentAssessment={assessment}
@@ -400,8 +450,21 @@ export default function InteractiveGrading({
             />
           )}
 
+          {/* ---- Evidence section ---- */}
+          {assessment && !assessment.error && (
+            <EvidenceSection
+              showEvidence={showEvidence}
+              setShowEvidence={setShowEvidence}
+              currentAssessment={assessment}
+              hoveredEvidenceIndex={hoveredEvidenceIndex}
+              setHoveredEvidenceIndex={setHoveredEvidenceIndex}
+              hoveredAssessmentIndexes={hoveredAssessmentIndexes}
+              setHoveredAssessmentIndexes={setHoveredAssessmentIndexes}
+            />
+          )}
+
           {/* ---- Hallucination panel ---- */}
-          {assessment && (
+          {assessment && !assessment.error && (
             <HallucinationPanel
               essayContent={pdfContent}
               evidenceQuotes={assessment.evidence}
