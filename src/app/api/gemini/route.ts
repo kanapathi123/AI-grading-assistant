@@ -21,6 +21,10 @@ export async function POST(request: NextRequest) {
     switch (action) {
       case 'extractRubricCriteria':
         return handleExtractRubric(payload);
+      case 'createRubricCache':
+        return handleCreateRubricCache(payload);
+      case 'deleteRubricCache':
+        return handleDeleteRubricCache(payload);
       case 'gradeSingleCriterion':
         return handleGradeCriterion(payload);
       case 'generateOverallAssessment':
@@ -41,6 +45,31 @@ export async function POST(request: NextRequest) {
 
 async function callGemini(prompt: string, model: string, maxTokens: number, temperature?: number) {
   const config: Record<string, unknown> = { maxOutputTokens: maxTokens };
+  if (!isThinkingModel(model) && temperature !== undefined) {
+    config.temperature = temperature;
+  }
+
+  const response = await ai.models.generateContent({
+    model,
+    contents: [createUserContent([prompt])],
+    config,
+  });
+
+  return (response.text ?? '').trim();
+}
+
+/** Call Gemini using a cached context — only sends the new per-criterion prompt */
+async function callGeminiWithCache(
+  prompt: string,
+  model: string,
+  cacheName: string,
+  maxTokens: number,
+  temperature?: number
+) {
+  const config: Record<string, unknown> = {
+    maxOutputTokens: maxTokens,
+    cachedContent: cacheName,
+  };
   if (!isThinkingModel(model) && temperature !== undefined) {
     config.temperature = temperature;
   }
@@ -78,6 +107,70 @@ function cleanJsonObject(text: string): string {
   }
   return cleaned;
 }
+
+/* ============================================================ */
+/*  Rubric Context Cache                                         */
+/* ============================================================ */
+
+const GRADING_SYSTEM_PROMPT = `You are a rigorous, no-nonsense essay grader for a masters level course. You hold students to a high standard and do not give praise unless it is clearly warranted by the text. Avoid flattery, hedging, or softening language. If the essay is weak in an area, say so directly. If the essay is strong, acknowledge it briefly without exaggeration.
+
+Your assessment must reference the rubric criterion directly. Do NOT make the score obvious from your justification — a reader should not be able to guess the exact score from your commentary alone. Focus on what the essay does and does not achieve relative to the criterion.`;
+
+async function handleCreateRubricCache(payload: {
+  rubricContent: string;
+  contextList?: { title: string; content: string }[];
+  modelOverride?: string;
+}) {
+  const model = payload.modelOverride || defaultModel;
+
+  let contextBlock = '';
+  if (payload.contextList && payload.contextList.length > 0) {
+    contextBlock =
+      'CONTEXT DUMP:\n' +
+      payload.contextList.map((ctx) => `- ${ctx.title}: ${ctx.content}`).join('\n') +
+      '\n\n';
+  }
+
+  const cachedText = `${contextBlock}RUBRIC:\n${payload.rubricContent}`;
+
+  try {
+    const cache = await ai.caches.create({
+      model,
+      config: {
+        contents: [createUserContent([cachedText])],
+        systemInstruction: GRADING_SYSTEM_PROMPT,
+        displayName: `essay-grader-rubric-${Date.now()}`,
+        ttl: '3600s', // 1 hour
+      },
+    });
+
+    return NextResponse.json({
+      result: {
+        cacheName: cache.name,
+        tokenCount: cache.usageMetadata?.totalTokenCount ?? null,
+      },
+    });
+  } catch (error) {
+    console.error('Cache creation failed:', error);
+    // Not fatal — grading can proceed without cache
+    return NextResponse.json({
+      result: { cacheName: null, error: 'Cache creation failed, will use standard requests' },
+    });
+  }
+}
+
+async function handleDeleteRubricCache(payload: { cacheName: string }) {
+  try {
+    await ai.caches.delete({ name: payload.cacheName });
+    return NextResponse.json({ result: { deleted: true } });
+  } catch {
+    return NextResponse.json({ result: { deleted: false } });
+  }
+}
+
+/* ============================================================ */
+/*  Extract Rubric                                                */
+/* ============================================================ */
 
 async function handleExtractRubric(payload: { rubricContent: string; modelOverride?: string }) {
   const model = payload.modelOverride || defaultModel;
@@ -120,12 +213,17 @@ async function handleExtractRubric(payload: { rubricContent: string; modelOverri
   return NextResponse.json({ result: parsed });
 }
 
+/* ============================================================ */
+/*  Grade Single Criterion                                        */
+/* ============================================================ */
+
 async function handleGradeCriterion(payload: {
   essayContent: string;
   criterion: { name: string; id: number; scoreRange: { min: number; max: number } };
   assessmentType?: string;
   assessmentLength?: string;
   contextList?: { title: string; content: string }[];
+  cacheName?: string;
   modelOverride?: string;
 }) {
   const model = payload.modelOverride || defaultModel;
@@ -155,20 +253,62 @@ async function handleGradeCriterion(payload: {
   else if (assessmentLength === 'medium') lengthInstruction = 'Be balanced in detail and length.';
   else lengthInstruction = 'Be detailed and extended.';
 
-  let contextBlock = '';
-  if (payload.contextList && payload.contextList.length > 0) {
-    contextBlock =
-      'CONTEXT DUMP:\n' +
-      payload.contextList.map((ctx) => `- ${ctx.title}: ${ctx.content}`).join('\n') +
-      '\n';
-  }
-
   const criterion = payload.criterion;
-  const prompt = `
-    ${contextBlock}
-    You are a rigorous, no-nonsense essay grader for a masters level course. You hold students to a high standard and do not give praise unless it is clearly warranted by the text. Avoid flattery, hedging, or softening language. If the essay is weak in an area, say so directly. If the essay is strong, acknowledge it briefly without exaggeration.
 
-    Your assessment must reference the rubric criterion directly. Do NOT make the score obvious from your justification — a reader should not be able to guess the exact score from your commentary alone. Focus on what the essay does and does not achieve relative to the criterion.
+  // When using cache, the rubric + essay + system prompt are already cached
+  // We only need to send the criterion-specific instructions
+  const hasCacheAvailable = !!payload.cacheName;
+
+  let prompt: string;
+  if (hasCacheAvailable) {
+    prompt = `
+    Grade the following criterion using the rubric provided in the cached context.
+
+    ESSAY:
+    ${payload.essayContent}
+
+    CRITERION: ${criterion.name}
+    SCORE RANGE: ${criterion.scoreRange.min} to ${criterion.scoreRange.max}
+
+    Provide the following in your response:
+    1. A justification for your assessment that is balanced and critical. Do not reveal or hint at the exact score. ${justificationInstruction} ${lengthInstruction}
+    2. At least 5 specific EXACT quotes from the essay (copy-pasted verbatim, not paraphrased) that support or influenced your assessment. These must be:
+       - Drawn from DIFFERENT parts/pages of the essay (do not cluster quotes from one section)
+       - UNIQUE to this criterion — do not reuse generic quotes that could apply to any criterion
+       - Include both quotes that demonstrate strengths AND weaknesses for this criterion
+       - Each quote must be at least one full sentence (no fragments or single phrases)
+    3. For each quote, indicate which sentences or bullet points from your justification it supports. ${relateInstruction}
+    4. Your numerical score (${criterion.scoreRange.min}-${criterion.scoreRange.max})
+
+    FORMAT YOUR RESPONSE AS A VALID JSON object:
+    {
+      ${justificationSchema}
+      "evidence": [
+        {
+          "quote": "exact verbatim quote from essay — must be a complete sentence or clause, not just a few words",
+          "paragraph": "PAGE X, Section/Paragraph identifier",
+          "relatedAssessmentIndexes": [array of integers, optional]
+        },
+        ...
+      ],
+      "score": number
+    }
+
+    DO NOT include any explanatory text before or after the JSON object.
+    ONLY return the JSON object and nothing else.
+    `;
+  } else {
+    let contextBlock = '';
+    if (payload.contextList && payload.contextList.length > 0) {
+      contextBlock =
+        'CONTEXT DUMP:\n' +
+        payload.contextList.map((ctx) => `- ${ctx.title}: ${ctx.content}`).join('\n') +
+        '\n';
+    }
+
+    prompt = `
+    ${contextBlock}
+    ${GRADING_SYSTEM_PROMPT}
 
     CRITERION: ${criterion.name}
     SCORE RANGE: ${criterion.scoreRange.min} to ${criterion.scoreRange.max}
@@ -202,10 +342,23 @@ async function handleGradeCriterion(payload: {
 
     DO NOT include any explanatory text before or after the JSON object.
     ONLY return the JSON object and nothing else.
-  `;
+    `;
+  }
 
   const maxTokens = isThinkingModel(model) ? 8192 : 1024;
-  const raw = await callGemini(prompt, model, maxTokens, 0.2);
+
+  let raw: string;
+  if (hasCacheAvailable) {
+    try {
+      raw = await callGeminiWithCache(prompt, model, payload.cacheName!, maxTokens, 0.2);
+    } catch (cacheError) {
+      console.warn('Cached call failed, falling back to standard:', cacheError);
+      // Fallback: send full prompt without cache
+      raw = await callGemini(prompt, model, maxTokens, 0.2);
+    }
+  } else {
+    raw = await callGemini(prompt, model, maxTokens, 0.2);
+  }
 
   if (!raw) {
     return NextResponse.json({
@@ -222,6 +375,10 @@ async function handleGradeCriterion(payload: {
   const parsed = JSON.parse(cleaned);
   return NextResponse.json({ result: parsed });
 }
+
+/* ============================================================ */
+/*  Overall Assessment                                            */
+/* ============================================================ */
 
 async function handleOverallAssessment(payload: {
   essayContent: string;
@@ -273,6 +430,10 @@ async function handleOverallAssessment(payload: {
   const parsed = JSON.parse(cleaned);
   return NextResponse.json({ result: parsed });
 }
+
+/* ============================================================ */
+/*  Revise Score                                                  */
+/* ============================================================ */
 
 async function handleReviseScore(payload: {
   essayContent: string;

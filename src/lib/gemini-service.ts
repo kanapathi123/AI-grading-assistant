@@ -69,6 +69,37 @@ export const extractRubricCriteria = async (
 };
 
 /**
+ * Create a rubric cache — caches rubric + essay + system prompt for reuse across criteria
+ */
+export const createRubricCache = async (
+  rubricContent: string,
+  contextList?: ContextItem[],
+  modelOverride?: string
+): Promise<{ cacheName: string | null; tokenCount: number | null }> => {
+  try {
+    const result = await callApi('createRubricCache', {
+      rubricContent,
+      contextList,
+      modelOverride,
+    });
+    return { cacheName: result.cacheName ?? null, tokenCount: result.tokenCount ?? null };
+  } catch {
+    return { cacheName: null, tokenCount: null };
+  }
+};
+
+/**
+ * Delete a rubric cache
+ */
+export const deleteRubricCache = async (cacheName: string): Promise<void> => {
+  try {
+    await callApi('deleteRubricCache', { cacheName });
+  } catch {
+    // Best-effort cleanup
+  }
+};
+
+/**
  * Grade a single criterion from a rubric
  */
 export const gradeSingleCriterion = async (
@@ -76,7 +107,8 @@ export const gradeSingleCriterion = async (
   criterion: Criterion,
   options: GradeSingleCriterionOptions = {},
   contextList?: ContextItem[],
-  modelOverride?: string
+  modelOverride?: string,
+  cacheName?: string | null
 ): Promise<GradeSingleCriterionResult> => {
   try {
     const result = await callApi('gradeSingleCriterion', {
@@ -86,6 +118,7 @@ export const gradeSingleCriterion = async (
       assessmentLength: options.assessmentLength,
       contextList,
       modelOverride,
+      cacheName: cacheName || undefined,
     });
     return result;
   } catch {
@@ -168,6 +201,8 @@ export const uploadContextDump = async (
 
 const geminiService = {
   extractRubricCriteria,
+  createRubricCache,
+  deleteRubricCache,
   gradeSingleCriterion,
   generateOverallAssessment,
   reviseCriterionScoreWithJustification,

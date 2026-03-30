@@ -23,6 +23,8 @@ import type {
 } from '@/types';
 import {
   extractRubricCriteria,
+  createRubricCache,
+  deleteRubricCache,
   gradeSingleCriterion,
   generateOverallAssessment,
 } from '@/lib/gemini-service';
@@ -205,6 +207,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     Record<string, { detected: number; confirmed: number; reported: number }>
   >({});
 
+  /* ---- context cache for rubric+essay reuse ---- */
+  const [cacheName, setCacheName] = useState<string | null>(null);
+
   /* ---- ref to prevent duplicate grading ---- */
   const gradingInProgress = useRef<Set<number>>(new Set());
 
@@ -243,6 +248,8 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
           criterion,
           { assessmentType, assessmentLength },
           contextList,
+          undefined,
+          cacheName,
         );
 
         const newAssessment: Assessment = {
@@ -303,6 +310,16 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
       setOverallAssessment(null);
       setCurrentStep('grading');
 
+      /* Create context cache for rubric+essay reuse (non-blocking) */
+      if (!cacheName) {
+        createRubricCache(rubricContent, contextList).then(({ cacheName: name }) => {
+          if (name) {
+            console.log('Rubric cache created:', name);
+            setCacheName(name);
+          }
+        }).catch(() => { /* cache is optional */ });
+      }
+
       /* start grading the first criterion */
       await gradeCurrentCriterion(criteria, 0);
     } catch (err) {
@@ -310,7 +327,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     } finally {
       setIsProcessingRubric(false);
     }
-  }, [pdfContent, rubricContent, gradeCurrentCriterion]);
+  }, [pdfContent, rubricContent, contextList, cacheName, gradeCurrentCriterion]);
 
   /* -------------------------------------------------------------------------- */
   /*  handleTeacherScoreInput                                                    */
@@ -493,6 +510,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
   /* -------------------------------------------------------------------------- */
 
   const restartGrading = useCallback(() => {
+    // Clean up cache on full restart
+    if (cacheName) deleteRubricCache(cacheName).catch(() => {});
+    setCacheName(null);
     setCurrentStep('welcome');
     setEssayFile(null);
     setEssayFileName(null);
@@ -516,13 +536,14 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     setActivePdfEvidence(null);
     setHallucinationCounts({});
     gradingInProgress.current.clear();
-  }, []);
+  }, [cacheName]);
 
   /* -------------------------------------------------------------------------- */
   /*  gradeNextEssay — keeps rubric + settings, resets essay/grading              */
   /* -------------------------------------------------------------------------- */
 
   const gradeNextEssay = useCallback(() => {
+    // Keep cache — rubric stays the same, only essay changes
     setCurrentStep('essay');
     setEssayFile(null);
     setEssayFileName(null);
@@ -538,15 +559,18 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     setActivePdfEvidence(null);
     setHallucinationCounts({});
     gradingInProgress.current.clear();
-  }, []);
+  }, [cacheName]);
 
   /* -------------------------------------------------------------------------- */
   /*  revisitCriteria — goes back to rubric step                                 */
   /* -------------------------------------------------------------------------- */
 
   const revisitCriteria = useCallback(() => {
+    // Invalidate cache since rubric may change
+    if (cacheName) deleteRubricCache(cacheName).catch(() => {});
+    setCacheName(null);
     setCurrentStep('rubric');
-  }, []);
+  }, [cacheName]);
 
   /* -------------------------------------------------------------------------- */
   /*  updateHallucinationCounts                                                  */
@@ -774,7 +798,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
           {/*  Step 5: Active Grading / Step 6: Complete                      */}
           {/* ============================================================== */}
           {(currentStep === 'grading' || currentStep === 'complete') && (
-            <motion.div key="grading" {...slideVariants} className="flex flex-1 overflow-hidden">
+            <motion.div key="grading" {...slideVariants} className="flex h-full flex-1 overflow-hidden">
               <InteractiveGrading
                 pdfFile={essayFile}
                 pdfContent={pdfContent}

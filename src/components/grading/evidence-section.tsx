@@ -54,7 +54,7 @@ export default function EvidenceSection({
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.3 }}
-              className="space-y-3"
+              className="max-h-[400px] space-y-3 overflow-y-auto pr-1"
             >
               {evidence.map((item, idx) => (
                 <div

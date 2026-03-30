@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Loader2, AlertCircle } from 'lucide-react';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -36,19 +36,8 @@ function getColorForCriterion(name: string): { bg: string; border: string } {
   return HIGHLIGHT_COLORS[name];
 }
 
-function normalize(s: string): string {
-  return s.replace(/[\s\u00A0]+/g, ' ').trim().toLowerCase();
-}
-
-/** Build sliding windows of N consecutive words from normalized text */
-function buildWindows(text: string, windowSize: number): string[] {
-  const words = text.split(/\s+/).filter(w => w.length > 0);
-  if (words.length < windowSize) return [text];
-  const windows: string[] = [];
-  for (let i = 0; i <= words.length - windowSize; i++) {
-    windows.push(words.slice(i, i + windowSize).join(' '));
-  }
-  return windows;
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
@@ -57,6 +46,11 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
   const [scale, setScale] = useState<number>(1.0);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
+
+  // Page-level highlight map: itemIndex -> criterionName
+  const highlightMapRef = useRef<Map<number, string>>(new Map());
+  const [hlMapVersion, setHlMapVersion] = useState(0);
+  const lastComputedRef = useRef<string>('');
 
   const onDocumentLoadSuccess = ({ numPages: total }: { numPages: number }) => {
     setNumPages(total);
@@ -75,44 +69,100 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
   const zoomIn = () => setScale((prev) => Math.min(2.5, prev + 0.15));
   const zoomOut = () => setScale((prev) => Math.max(0.5, prev - 0.15));
 
-  // Build normalized quote phrases for substring matching
-  const phrases = useMemo(() => {
-    if (!highlights.length) return null;
-    return highlights.map(h => ({
-      // Extract 3-word sliding windows from each quote for matching
-      windows: buildWindows(normalize(h.text), 3),
-      criterionName: h.criterionName,
-    }));
-  }, [highlights]);
+  // Stable fingerprint to detect highlight content changes
+  const highlightsKey = useMemo(
+    () => highlights.map(h => h.text.slice(0, 20)).join('|'),
+    [highlights],
+  );
 
-  const customTextRenderer = useCallback(
-    (textItem: { str: string }) => {
-      if (!phrases) return textItem.str;
+  /**
+   * Page-level text matching: concatenate ALL text items into one string,
+   * find each highlight quote via regex, then map matched character ranges
+   * back to item indices. Works regardless of how the PDF chunks text.
+   */
+  const handleGetTextSuccess = useCallback(
+    (textContent: { items: Array<Record<string, unknown>> }) => {
+      const cacheKey = `${pageNumber}::${highlightsKey}`;
+      if (lastComputedRef.current === cacheKey) return;
+      lastComputedRef.current = cacheKey;
 
-      const str = textItem.str;
-      const normStr = normalize(str);
-      if (!normStr || normStr.length < 12) return str;
+      if (!highlights.length) {
+        highlightMapRef.current = new Map();
+        return;
+      }
 
-      // Check if this text chunk matches a 3-word window from any quote
-      for (const phrase of phrases) {
-        for (const window of phrase.windows) {
-          // Both the chunk and window must have meaningful length overlap
-          if (window.length < 10) continue;
-          if (normStr.includes(window)) {
-            const color = getColorForCriterion(phrase.criterionName);
-            return `<mark class="pdf-hl" style="background:${color.bg};--hl-color:${color.border};" data-criteria="${phrase.criterionName}">${str}</mark>`;
+      const items: string[] = textContent.items
+        .filter((item) => typeof item.str === 'string')
+        .map((item) => item.str as string);
+
+      if (items.length === 0) {
+        highlightMapRef.current = new Map();
+        return;
+      }
+
+      const map = new Map<number, string>();
+
+      // Build full page text, tracking each item's character range
+      let fullText = '';
+      const itemRanges: { start: number; end: number }[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const start = fullText.length;
+        fullText += items[i];
+        itemRanges.push({ start, end: fullText.length });
+        fullText += ' ';
+      }
+
+      for (const hl of highlights) {
+        const words = hl.text.trim().split(/\s+/).filter((w) => w.length > 0);
+        if (words.length < 3) continue;
+
+        // Regex: each word with flexible whitespace/punctuation between
+        const pattern = words.map((w) => escapeRegExp(w)).join('[\\s\\S]{0,12}');
+        try {
+          const regex = new RegExp(pattern, 'gi');
+          let match;
+          while ((match = regex.exec(fullText)) !== null) {
+            const matchStart = match.index;
+            const matchEnd = matchStart + match[0].length;
+
+            // Mark every text item overlapping this range
+            for (let i = 0; i < itemRanges.length; i++) {
+              const r = itemRanges[i];
+              if (r.end > matchStart && r.start < matchEnd && items[i].trim().length > 0) {
+                if (!map.has(i)) {
+                  map.set(i, hl.criterionName);
+                }
+              }
+            }
+
+            regex.lastIndex = matchEnd;
+            if (match[0].length === 0) break;
           }
-          // Only match if the chunk is a substantial substring of the window (>60% of chunk)
-          if (window.includes(normStr) && normStr.length > window.length * 0.4) {
-            const color = getColorForCriterion(phrase.criterionName);
-            return `<mark class="pdf-hl" style="background:${color.bg};--hl-color:${color.border};" data-criteria="${phrase.criterionName}">${str}</mark>`;
-          }
+        } catch {
+          // Regex too complex, skip
         }
       }
 
-      return str;
+      highlightMapRef.current = map;
+      if (map.size > 0) {
+        setHlMapVersion((v) => v + 1);
+      }
     },
-    [phrases],
+    [pageNumber, highlights, highlightsKey],
+  );
+
+  // Uses the precomputed item-index map — no per-item guessing
+  const customTextRenderer = useCallback(
+    (textItem: { str: string; itemIndex: number }) => {
+      const criterionName = highlightMapRef.current.get(textItem.itemIndex);
+      if (criterionName) {
+        const color = getColorForCriterion(criterionName);
+        return `<mark class="pdf-hl" style="background:${color.bg};--hl-color:${color.border};" data-criteria="${criterionName}">${textItem.str}</mark>`;
+      }
+      return textItem.str;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hlMapVersion],
   );
 
   if (!url) {
@@ -127,8 +177,12 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
   const legendItems = useMemo(() => {
     const seen = new Set<string>();
     return highlights
-      .filter(h => { if (seen.has(h.criterionName)) return false; seen.add(h.criterionName); return true; })
-      .map(h => ({ name: h.criterionName, color: getColorForCriterion(h.criterionName) }));
+      .filter((h) => {
+        if (seen.has(h.criterionName)) return false;
+        seen.add(h.criterionName);
+        return true;
+      })
+      .map((h) => ({ name: h.criterionName, color: getColorForCriterion(h.criterionName) }));
   }, [highlights]);
 
   return (
@@ -180,11 +234,15 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
       {legendItems.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50/50 px-3 py-1.5 dark:border-slate-700 dark:bg-slate-800/50">
           <span className="text-xs font-medium text-gray-400 dark:text-slate-500">Evidence:</span>
-          {legendItems.map(item => (
+          {legendItems.map((item) => (
             <span
               key={item.name}
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-              style={{ backgroundColor: item.color.bg, color: item.color.border, borderBottom: `2px solid ${item.color.border}` }}
+              style={{
+                backgroundColor: item.color.bg,
+                color: item.color.border,
+                borderBottom: `2px solid ${item.color.border}`,
+              }}
             >
               {item.name}
             </span>
@@ -217,12 +275,13 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
           {!error && (
             <div className="flex justify-center">
               <Page
-                key={`${pageNumber}-hl${highlights.length}`}
+                key={`${pageNumber}-hl${highlights.length}-v${hlMapVersion}`}
                 pageNumber={pageNumber}
                 scale={scale}
                 className="shadow-lg"
                 loading={null}
-                customTextRenderer={phrases ? customTextRenderer : undefined}
+                onGetTextSuccess={handleGetTextSuccess}
+                customTextRenderer={highlightMapRef.current.size > 0 ? customTextRenderer : undefined}
               />
             </div>
           )}

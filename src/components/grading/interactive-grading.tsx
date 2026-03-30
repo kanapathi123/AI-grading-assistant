@@ -320,7 +320,7 @@ export default function InteractiveGrading({
   const progressPct = totalCriteria > 0 ? ((currentCriterionIndex + 1) / totalCriteria) * 100 : 0;
 
   return (
-    <div className="flex h-full w-full gap-0">
+    <div className="flex h-[calc(100vh-4rem)] w-full gap-0">
       {/* ============================================================ */}
       {/*  LEFT COLUMN — Grading Controls (60%)                        */}
       {/* ============================================================ */}
@@ -682,7 +682,7 @@ export default function InteractiveGrading({
       {/* ============================================================ */}
       {/*  RIGHT COLUMN — PDF Viewer (40%)                             */}
       {/* ============================================================ */}
-      <div className="w-[40%] overflow-hidden">
+      <div className="h-full w-[40%] overflow-hidden">
         <PdfViewer
           url={pdfFile}
           highlights={pdfHighlights}
