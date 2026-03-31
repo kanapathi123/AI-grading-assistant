@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2,
@@ -111,6 +111,33 @@ export default function InteractiveGrading({
   const [isFinishing, setIsFinishing] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
   const [hoveredEvidenceIndex, setHoveredEvidenceIndex] = useState<number | null>(null);
+
+  /* ---- draggable split pane ---- */
+  const [leftPct, setLeftPct] = useState(60);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+
+  const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setLeftPct(Math.min(75, Math.max(30, pct)));
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
 
   /* ---- derived ---- */
   const criterion = rubricCriteria[currentCriterionIndex] ?? null;
@@ -320,11 +347,11 @@ export default function InteractiveGrading({
   const progressPct = totalCriteria > 0 ? ((currentCriterionIndex + 1) / totalCriteria) * 100 : 0;
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] w-full gap-0">
+    <div ref={containerRef} className="flex h-[calc(100vh-4rem)] w-full">
       {/* ============================================================ */}
-      {/*  LEFT COLUMN — Grading Controls (60%)                        */}
+      {/*  LEFT COLUMN — Grading Controls                              */}
       {/* ============================================================ */}
-      <div className="relative flex w-[60%] flex-col overflow-y-auto border-r border-gray-200 dark:border-slate-700">
+      <div className="relative flex flex-col overflow-y-auto border-r border-gray-200 dark:border-slate-700" style={{ width: `${leftPct}%` }}>
         {/* Error banner */}
         <AnimatePresence>
           {gradingError && (
@@ -682,7 +709,16 @@ export default function InteractiveGrading({
       {/* ============================================================ */}
       {/*  RIGHT COLUMN — PDF Viewer (40%)                             */}
       {/* ============================================================ */}
-      <div className="h-full w-[40%] overflow-hidden">
+      {/* Draggable divider */}
+      <div
+        onMouseDown={handleDividerMouseDown}
+        className="group relative z-20 flex w-1.5 cursor-col-resize items-center justify-center bg-gray-200 transition-colors hover:bg-[#6366F1]/40 active:bg-[#6366F1]/60 dark:bg-slate-700 dark:hover:bg-[#818CF8]/40"
+      >
+        <div className="h-8 w-1 rounded-full bg-gray-400 transition-colors group-hover:bg-[#6366F1] dark:bg-slate-500 dark:group-hover:bg-[#818CF8]" />
+      </div>
+
+      {/* RIGHT COLUMN — PDF Viewer */}
+      <div className="h-full overflow-hidden" style={{ width: `${100 - leftPct}%` }}>
         <PdfViewer
           url={pdfFile}
           highlights={pdfHighlights}
