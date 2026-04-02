@@ -112,9 +112,25 @@ function cleanJsonObject(text: string): string {
 /*  Rubric Context Cache                                         */
 /* ============================================================ */
 
-const GRADING_SYSTEM_PROMPT = `You are a rigorous, no-nonsense essay grader for a masters level course. You hold students to a high standard and do not give praise unless it is clearly warranted by the text. Avoid flattery, hedging, or softening language. If the essay is weak in an area, say so directly. If the essay is strong, acknowledge it briefly without exaggeration.
+const GRADING_SYSTEM_PROMPT = `You are a strict essay grader for a masters level course. Hold students to a high standard. If something is weak, say so plainly. If something is good, say so briefly. Do not use fancy language, filler words, or unnecessary adjectives. Write like you are talking to the student directly — short sentences, plain English.
 
-Your assessment must reference the rubric criterion directly. Do NOT make the score obvious from your justification — a reader should not be able to guess the exact score from your commentary alone. Focus on what the essay does and does not achieve relative to the criterion.`;
+GRADING METHODOLOGY:
+1. Read the full essay before grading anything.
+2. For each criterion, check the essay against EVERY score level in the rubric (low to high). Find the level that fits best.
+3. Give the score of the closest matching level. If it falls between two levels, pick the nearer one — do not default to the middle.
+4. In your justification, point to specific rubric levels and say why the essay fits or does not fit them.
+5. Do NOT make the score obvious from your justification — the reader should not be able to guess the exact number.
+
+WRITING STYLE:
+- Use simple, direct English. No fancy words. No filler.
+- Say "the essay does X" not "the essay demonstrates a commendable ability to X".
+- Say "this is missing" not "there is a notable absence of".
+- Keep sentences short. One idea per sentence.
+
+EVIDENCE RULES:
+- Every quote MUST be copied EXACTLY from the essay. Do not change any words, fix grammar, or rephrase.
+- If you cannot find an exact quote, do not make one up.
+- Pick quotes that are specific to this criterion, not generic lines that could apply to anything.`;
 
 async function handleCreateRubricCache(payload: {
   rubricContent: string;
@@ -249,9 +265,19 @@ async function handleGradeCriterion(payload: {
     If the justification is a paragraph, treat each sentence as a unit (split on periods, exclamation marks, or question marks). If it's a list, use each bullet as a unit.`;
 
   let lengthInstruction = '';
-  if (assessmentLength === 'short') lengthInstruction = 'Be concise and brief.';
-  else if (assessmentLength === 'medium') lengthInstruction = 'Be balanced in detail and length.';
-  else lengthInstruction = 'Be detailed and extended.';
+  if (assessmentLength === 'short') {
+    lengthInstruction = assessmentType === 'bullets'
+      ? 'Keep it to 3-4 bullet points. Each bullet should be 1 sentence.'
+      : 'Keep the justification to 2-3 sentences total.';
+  } else if (assessmentLength === 'medium') {
+    lengthInstruction = assessmentType === 'bullets'
+      ? 'Use 4-6 bullet points. Each bullet should be 1-2 sentences.'
+      : 'Write 4-6 sentences in one paragraph.';
+  } else {
+    lengthInstruction = assessmentType === 'bullets'
+      ? 'Use 6-8 bullet points. Each bullet can be 1-2 sentences with specific examples.'
+      : 'Write a detailed paragraph of 6-10 sentences with specific examples from the essay.';
+  }
 
   const criterion = payload.criterion;
 
@@ -270,22 +296,24 @@ async function handleGradeCriterion(payload: {
     CRITERION: ${criterion.name}
     SCORE RANGE: ${criterion.scoreRange.min} to ${criterion.scoreRange.max}
 
-    Provide the following in your response:
-    1. A justification for your assessment that is balanced and critical. Do not reveal or hint at the exact score. ${justificationInstruction} ${lengthInstruction}
-    2. At least 5 specific EXACT quotes from the essay (copy-pasted verbatim, not paraphrased) that support or influenced your assessment. These must be:
-       - Drawn from DIFFERENT parts/pages of the essay (do not cluster quotes from one section)
-       - UNIQUE to this criterion — do not reuse generic quotes that could apply to any criterion
-       - Include both quotes that demonstrate strengths AND weaknesses for this criterion
-       - Each quote must be at least one full sentence (no fragments or single phrases)
-    3. For each quote, indicate which sentences or bullet points from your justification it supports. ${relateInstruction}
-    4. Your numerical score (${criterion.scoreRange.min}-${criterion.scoreRange.max})
+    INSTRUCTIONS:
+    1. First, evaluate the essay against EACH score level (${criterion.scoreRange.min} to ${criterion.scoreRange.max}) for this criterion. Determine which level the essay most closely matches.
+    2. Write a justification that is balanced and critical. Reference specific rubric level descriptions to explain your reasoning. Do not reveal or hint at the exact score. ${justificationInstruction} ${lengthInstruction}
+    3. Provide at least 5 VERBATIM quotes from the essay. CRITICAL: these must be EXACT copy-pastes from the essay — every word, space, and punctuation mark must match the original text exactly. Do NOT paraphrase, rephrase, reorder words, fix grammar, or alter the text in any way. If unsure of exact wording, use a shorter quote you are certain about.
+       Evidence requirements:
+       - From DIFFERENT parts/pages of the essay (spread across the full document)
+       - UNIQUE to this criterion — avoid generic quotes that could apply to any criterion
+       - Include quotes showing both strengths AND weaknesses
+       - Each quote must be at least one full sentence or meaningful clause
+    4. ${relateInstruction}
+    5. Assign your numerical score (${criterion.scoreRange.min}-${criterion.scoreRange.max}) — must correspond to the rubric level you identified in step 1.
 
     FORMAT YOUR RESPONSE AS A VALID JSON object:
     {
       ${justificationSchema}
       "evidence": [
         {
-          "quote": "exact verbatim quote from essay — must be a complete sentence or clause, not just a few words",
+          "quote": "EXACT verbatim text from essay — character-for-character copy",
           "paragraph": "PAGE X, Section/Paragraph identifier",
           "relatedAssessmentIndexes": [array of integers, optional]
         },
@@ -316,22 +344,24 @@ async function handleGradeCriterion(payload: {
     ESSAY:
     ${payload.essayContent}
 
-    Provide the following in your response:
-    1. A justification for your assessment that is balanced and critical. Do not reveal or hint at the exact score. ${justificationInstruction} ${lengthInstruction}
-    2. At least 5 specific EXACT quotes from the essay (copy-pasted verbatim, not paraphrased) that support or influenced your assessment. These must be:
-       - Drawn from DIFFERENT parts/pages of the essay (do not cluster quotes from one section)
-       - UNIQUE to this criterion — do not reuse generic quotes that could apply to any criterion
-       - Include both quotes that demonstrate strengths AND weaknesses for this criterion
-       - Each quote must be at least one full sentence (no fragments or single phrases)
-    3. For each quote, indicate which sentences or bullet points from your justification it supports. ${relateInstruction}
-    4. Your numerical score (${criterion.scoreRange.min}-${criterion.scoreRange.max})
+    INSTRUCTIONS:
+    1. First, evaluate the essay against EACH score level (${criterion.scoreRange.min} to ${criterion.scoreRange.max}) for this criterion. Determine which level the essay most closely matches.
+    2. Write a justification that is balanced and critical. Reference specific rubric level descriptions to explain your reasoning. Do not reveal or hint at the exact score. ${justificationInstruction} ${lengthInstruction}
+    3. Provide at least 5 VERBATIM quotes from the essay. CRITICAL: these must be EXACT copy-pastes from the essay — every word, space, and punctuation mark must match the original text exactly. Do NOT paraphrase, rephrase, reorder words, fix grammar, or alter the text in any way. If unsure of exact wording, use a shorter quote you are certain about.
+       Evidence requirements:
+       - From DIFFERENT parts/pages of the essay (spread across the full document)
+       - UNIQUE to this criterion — avoid generic quotes that could apply to any criterion
+       - Include quotes showing both strengths AND weaknesses
+       - Each quote must be at least one full sentence or meaningful clause
+    4. ${relateInstruction}
+    5. Assign your numerical score (${criterion.scoreRange.min}-${criterion.scoreRange.max}) — must correspond to the rubric level you identified in step 1.
 
     FORMAT YOUR RESPONSE AS A VALID JSON object:
     {
       ${justificationSchema}
       "evidence": [
         {
-          "quote": "exact verbatim quote from essay — must be a complete sentence or clause, not just a few words",
+          "quote": "EXACT verbatim text from essay — character-for-character copy",
           "paragraph": "PAGE X, Section/Paragraph identifier",
           "relatedAssessmentIndexes": [array of integers, optional]
         },
@@ -345,7 +375,7 @@ async function handleGradeCriterion(payload: {
     `;
   }
 
-  const maxTokens = isThinkingModel(model) ? 8192 : 1024;
+  const maxTokens = isThinkingModel(model) ? 8192 : 2048;
 
   let raw: string;
   if (hasCacheAvailable) {

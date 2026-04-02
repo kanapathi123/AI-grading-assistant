@@ -27,13 +27,8 @@ type TabId = 'verification' | 'issues' | 'reported';
 
 const HALLUCINATION_TYPES = [
   'Factual Error',
-  'Misattribution',
-  'Statistical Error',
-  'Date/Timeline Error',
   'Fabricated Quote',
-  'Non-existent Source',
-  'Misrepresentation',
-  'Other',
+  'Highlighting Error',
 ] as const;
 
 interface HallucinationPanelProps {

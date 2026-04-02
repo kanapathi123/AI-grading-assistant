@@ -825,6 +825,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
                 criterionStartTime={criterionStartTime}
                 activePdfEvidence={activePdfEvidence}
                 setActivePdfEvidence={setActivePdfEvidence}
+                setAssessmentType={setAssessmentType}
                 onRevisitCriteria={revisitCriteria}
                 onGradeNextEssay={gradeNextEssay}
                 onHallucinationUpdate={updateHallucinationCounts}
