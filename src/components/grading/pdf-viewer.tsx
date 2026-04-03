@@ -116,30 +116,42 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
         const words = hl.text.trim().split(/\s+/).filter((w) => w.length > 0);
         if (words.length < 3) continue;
 
-        // Regex: each word with flexible whitespace/punctuation between
-        const pattern = words.map((w) => escapeRegExp(w)).join('[\\s\\S]{0,12}');
-        try {
-          const regex = new RegExp(pattern, 'gi');
-          let match;
-          while ((match = regex.exec(fullText)) !== null) {
-            const matchStart = match.index;
-            const matchEnd = matchStart + match[0].length;
+        // Try full match first, then fall back to a shorter prefix if the quote is long
+        const attempts: string[][] = [words];
+        if (words.length > 12) {
+          // For long quotes, also try just the first 10 words as a fallback
+          attempts.push(words.slice(0, 10));
+        }
 
-            // Mark every text item overlapping this range
-            for (let i = 0; i < itemRanges.length; i++) {
-              const r = itemRanges[i];
-              if (r.end > matchStart && r.start < matchEnd && items[i].trim().length > 0) {
-                if (!map.has(i)) {
-                  map.set(i, hl.criterionName);
+        let matched = false;
+        for (const attempt of attempts) {
+          if (matched) break;
+          // Regex: each word with flexible whitespace/punctuation between
+          const pattern = attempt.map((w) => escapeRegExp(w)).join('[\\s\\S]{0,20}');
+          try {
+            const regex = new RegExp(pattern, 'gi');
+            let match;
+            while ((match = regex.exec(fullText)) !== null) {
+              matched = true;
+              const matchStart = match.index;
+              const matchEnd = matchStart + match[0].length;
+
+              // Mark every text item overlapping this range
+              for (let i = 0; i < itemRanges.length; i++) {
+                const r = itemRanges[i];
+                if (r.end > matchStart && r.start < matchEnd && items[i].trim().length > 0) {
+                  if (!map.has(i)) {
+                    map.set(i, hl.criterionName);
+                  }
                 }
               }
-            }
 
-            regex.lastIndex = matchEnd;
-            if (match[0].length === 0) break;
+              regex.lastIndex = matchEnd;
+              if (match[0].length === 0) break;
+            }
+          } catch {
+            // Regex too complex, skip
           }
-        } catch {
-          // Regex too complex, skip
         }
       }
 

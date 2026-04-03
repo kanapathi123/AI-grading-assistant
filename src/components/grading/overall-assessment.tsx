@@ -24,14 +24,20 @@ export default function OverallAssessment({
   const [strengths, setStrengths] = useState(overallAssessment.strengths);
   const [improvements, setImprovements] = useState(overallAssessment.improvements);
   const [advice, setAdvice] = useState(overallAssessment.advice);
-  const [overallGrade, setOverallGrade] = useState(
-    String(overallAssessment.overallGrade)
-  );
 
   function getFinalScore(criterion: Assessment): string {
     const tScore = teacherScores[criterion.name];
     return tScore != null ? String(tScore) : '-';
   }
+
+  /* Compute average teacher score out of 5 */
+  const teacherScoreValues = criteriaAssessments
+    .map((c) => teacherScores[c.name])
+    .filter((s): s is number => s != null);
+  const averageTeacherScore =
+    teacherScoreValues.length > 0
+      ? teacherScoreValues.reduce((sum, s) => sum + s, 0) / teacherScoreValues.length
+      : null;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -90,17 +96,22 @@ export default function OverallAssessment({
         />
       </div>
 
-      {/* Overall Grade */}
+      {/* Overall Grade — average teacher score out of 5 */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <label className="mb-2 block text-sm font-semibold uppercase tracking-wider text-[#6366F1]">
           Overall Grade
         </label>
-        <input
-          type="text"
-          value={overallGrade}
-          onChange={(e) => setOverallGrade(e.target.value)}
-          className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xl font-bold text-[#1E1B4B] outline-none transition-colors focus:border-[#6366F1] focus:ring-2 focus:ring-[#6366F1]/20 dark:border-slate-600 dark:bg-slate-700 dark:text-[#E2E8F0]"
-        />
+        <div className="flex items-baseline gap-2">
+          <span className="text-4xl font-bold text-[#6366F1]">
+            {averageTeacherScore !== null ? averageTeacherScore.toFixed(1) : '—'}
+          </span>
+          <span className="text-lg font-medium text-gray-400 dark:text-slate-500">/ 5</span>
+        </div>
+        {teacherScoreValues.length < criteriaAssessments.length && (
+          <p className="mt-2 text-xs text-amber-500">
+            Based on {teacherScoreValues.length} of {criteriaAssessments.length} criteria scored
+          </p>
+        )}
       </div>
 
       {/* Criteria Breakdown Table */}

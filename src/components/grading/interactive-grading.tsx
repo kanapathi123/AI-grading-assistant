@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   ArrowRight,
   Eye,
+  List,
+  AlignLeft,
 } from 'lucide-react';
 import type { Criterion, Assessment, Evidence, ContextItem, AssessmentType, AssessmentLength, HallucinationThreshold, OverallAssessmentResult } from '@/types';
 import { reviseCriterionScoreWithJustification } from '@/lib/gemini-service';
@@ -59,6 +61,9 @@ export interface InteractiveGradingProps {
   activePdfEvidence: Evidence | null;
   setActivePdfEvidence: React.Dispatch<React.SetStateAction<Evidence | null>>;
 
+  /* settings */
+  setAssessmentType: (type: AssessmentType) => void;
+
   /* new navigation callbacks */
   onRevisitCriteria?: () => void;
   onGradeNextEssay?: () => void;
@@ -95,6 +100,7 @@ export default function InteractiveGrading({
   criterionStartTime,
   activePdfEvidence,
   setActivePdfEvidence,
+  setAssessmentType,
   onRevisitCriteria,
   onGradeNextEssay,
   onHallucinationUpdate,
@@ -109,6 +115,7 @@ export default function InteractiveGrading({
   const [showHallucinationPopup, setShowHallucinationPopup] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [showEvidence, setShowEvidence] = useState(false);
   const [hoveredEvidenceIndex, setHoveredEvidenceIndex] = useState<number | null>(null);
 
@@ -196,11 +203,13 @@ export default function InteractiveGrading({
   const isInitialLoading = rubricCriteria.length > 0 && Object.keys(criteriaAssessments).length === 0;
   const isCriterionLoading = criterion != null && !assessment;
 
-  /* reset warning on criterion change */
+  /* reset state on criterion change */
   useEffect(() => {
     setShowHallucinationPopup(false);
     setGradingError(null);
     setEditingJustification(false);
+    setEditedJustification('');
+    setEditedBullets([]);
   }, [currentCriterionIndex]);
 
   /* -------------------------------------------------------------------------- */
@@ -215,12 +224,18 @@ export default function InteractiveGrading({
         ? assessment.justification
         : assessment.justification.join('\n');
 
+      /* For bullets: the actual edited text is the bullets joined.
+         For flow: it's the newJustification string directly. */
+      const isBullets = assessmentType === 'bullets' && newBullets.length > 0;
+      const updatedJustification = isBullets ? newBullets : newJustification;
+      const editedTextForApi = isBullets ? newBullets.join('\n') : newJustification;
+
       /* immediately update justification in UI */
       setCriteriaAssessments((prev) => ({
         ...prev,
         [criterionId]: {
           ...prev[criterionId],
-          justification: assessmentType === 'bullets' ? newBullets : newJustification,
+          justification: updatedJustification,
         },
       }));
 
@@ -233,7 +248,7 @@ export default function InteractiveGrading({
           pdfContent,
           criterion,
           originalJustificationStr,
-          newJustification,
+          editedTextForApi,
           assessment.score,
         );
 
@@ -243,9 +258,9 @@ export default function InteractiveGrading({
             ...prev[criterionId],
             score: result.revisedScore,
             aiScore: result.revisedScore,
-            justification: assessmentType === 'bullets' ? newBullets : newJustification,
+            justification: updatedJustification,
             revisionRationale: result.rationale,
-            revisedAssessmentText: newJustification,
+            revisedAssessmentText: editedTextForApi,
           },
         }));
       } catch (err) {
@@ -257,7 +272,7 @@ export default function InteractiveGrading({
         setIsRevisingScore(false);
       }
     },
-    [criterion, assessment, criterionId, rubricContent, pdfContent, contextList, setCriteriaAssessments]
+    [criterion, assessment, criterionId, assessmentType, pdfContent, setCriteriaAssessments]
   );
 
   /* -------------------------------------------------------------------------- */
@@ -396,6 +411,35 @@ export default function InteractiveGrading({
             </div>
           </div>
 
+          {/* ---- Flow / Bullet toggle ---- */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-gray-400 dark:text-slate-500">Format:</span>
+            <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-slate-700 dark:bg-slate-800">
+              <button
+                onClick={() => setAssessmentType('flow')}
+                className={`cursor-pointer flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  assessmentType === 'flow'
+                    ? 'bg-white text-[#6366F1] shadow-sm dark:bg-slate-700 dark:text-[#818CF8]'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-300'
+                }`}
+              >
+                <AlignLeft className="h-3 w-3" />
+                Paragraph
+              </button>
+              <button
+                onClick={() => setAssessmentType('bullets')}
+                className={`cursor-pointer flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  assessmentType === 'bullets'
+                    ? 'bg-white text-[#6366F1] shadow-sm dark:bg-slate-700 dark:text-[#818CF8]'
+                    : 'text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-300'
+                }`}
+              >
+                <List className="h-3 w-3" />
+                Bullets
+              </button>
+            </div>
+          </div>
+
           {/* ---- Criterion card ---- */}
           {criterion && (
             <motion.div
@@ -433,24 +477,51 @@ export default function InteractiveGrading({
           {assessment?.error && (
             <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-800/40 dark:bg-red-950/20">
               <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 flex-shrink-0 text-[#EF4444]" />
+                {isRetrying ? (
+                  <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-[#6366F1]" />
+                ) : (
+                  <AlertCircle className="h-5 w-5 flex-shrink-0 text-[#EF4444]" />
+                )}
                 <div>
-                  <p className="text-sm font-medium text-[#EF4444]">
-                    Failed to grade this criterion
+                  <p className={`text-sm font-medium ${isRetrying ? 'text-[#6366F1]' : 'text-[#EF4444]'}`}>
+                    {isRetrying ? 'Retrying assessment...' : 'Failed to grade this criterion'}
                   </p>
-                  <p className="mt-0.5 text-xs text-red-400">
-                    {assessment.error === 'EMPTY_RESPONSE' ? 'The AI returned an empty response.' :
-                     assessment.error === 'MODEL_OVERLOADED' ? 'The AI model is overloaded. Try again in a moment.' :
-                     assessment.error === 'REQUEST_FAILED' ? 'Network error — check your connection.' :
-                     assessment.error}
-                  </p>
+                  {!isRetrying && (
+                    <p className="mt-0.5 text-xs text-red-400">
+                      {assessment.error === 'EMPTY_RESPONSE' ? 'The AI returned an empty response.' :
+                       assessment.error === 'MODEL_OVERLOADED' ? 'The AI model is overloaded. Try again in a moment.' :
+                       assessment.error === 'REQUEST_FAILED' ? 'Network error — check your connection.' :
+                       assessment.error}
+                    </p>
+                  )}
                 </div>
               </div>
               <button
-                onClick={() => gradeCurrentCriterion(rubricCriteria, currentCriterionIndex)}
-                className="cursor-pointer flex-shrink-0 rounded-lg bg-[#EF4444] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+                onClick={async () => {
+                  setIsRetrying(true);
+                  // Clear the error assessment so grading can re-run
+                  setCriteriaAssessments((prev) => {
+                    const next = { ...prev };
+                    delete next[criterionId];
+                    return next;
+                  });
+                  try {
+                    await gradeCurrentCriterion(rubricCriteria, currentCriterionIndex);
+                  } finally {
+                    setIsRetrying(false);
+                  }
+                }}
+                disabled={isRetrying}
+                className="cursor-pointer flex-shrink-0 rounded-lg bg-[#EF4444] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Retry
+                {isRetrying ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Retrying...
+                  </span>
+                ) : (
+                  'Retry'
+                )}
               </button>
             </div>
           )}
@@ -460,19 +531,19 @@ export default function InteractiveGrading({
             <AssessmentSection
               assessmentType={assessmentType}
               currentAssessment={assessment}
-              editingJustification={editingJustification}
-              editedJustification={editedJustification}
-              editedBullets={editedBullets}
-              setEditedJustification={setEditedJustification}
-              setEditedBullets={setEditedBullets}
-              setEditingJustification={setEditingJustification}
               hoveredAssessmentIndexes={hoveredAssessmentIndexes}
               setHoveredAssessmentIndexes={setHoveredAssessmentIndexes}
-              handleSaveJustification={() => {
-                const justStr = typeof assessment.justification === 'string'
-                  ? assessment.justification
-                  : assessment.justification.join('\n');
-                handleSaveJustification(editedJustification || justStr, editedBullets);
+              onEditClick={() => {
+                /* Populate edit state from current assessment */
+                const just = assessment.justification;
+                if (Array.isArray(just)) {
+                  setEditedBullets([...just]);
+                  setEditedJustification(just.join('\n'));
+                } else {
+                  setEditedJustification(just);
+                  setEditedBullets([]);
+                }
+                setEditingJustification(true);
               }}
             />
           )}
@@ -733,10 +804,11 @@ export default function InteractiveGrading({
           isOpen={editingJustification}
           onClose={() => setEditingJustification(false)}
           initialValue={editedJustification}
-          isBullets={assessmentType === 'bullets'}
+          isBullets={assessmentType === 'bullets' && Array.isArray(assessment.justification)}
           initialBullets={editedBullets}
           onSave={(value: string, bullets?: string[]) => {
-            handleSaveJustification(value, bullets ?? []);
+            const filteredBullets = (bullets ?? []).filter((b) => b.trim());
+            handleSaveJustification(value, filteredBullets);
           }}
           warningText="Editing will update AI score"
         />
