@@ -12,6 +12,7 @@ import {
   Info,
   LayoutDashboard,
   Loader2,
+  MessageSquare,
   Pencil,
   Play,
   Plus,
@@ -446,7 +447,7 @@ function RubricTable({
   return (
     <div className="space-y-4">
       {criteria.map((criterion) => (
-        <div key={criterion.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+        <div key={criterion.id} className="space-y-2 py-3">
           <div className="mb-3 flex items-center gap-2">
             <input
               value={criterion.name}
@@ -500,7 +501,7 @@ function RubricTable({
                           rows={2}
                           value={criterion.levels[score] || ''}
                           onChange={(e) => updateLevel(criterion.id, score, e.target.value)}
-                          placeholder={`What does ${score} look like?`}
+                          placeholder={`Description for score ${score}`}
                           className="w-full rounded-md border border-transparent px-2 py-1 text-xs text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300"
                         />
                       </td>
@@ -512,13 +513,15 @@ function RubricTable({
         </div>
       ))}
 
-      <button
-        onClick={addCriterion}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-2 text-sm text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-      >
-        <Plus className="h-4 w-4" />
-        Add Criterion
-      </button>
+      <div>
+        <button
+          onClick={addCriterion}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-2 text-sm text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+        >
+          <Plus className="h-4 w-4" />
+          Add Criterion
+        </button>
+      </div>
     </div>
   );
 }
@@ -830,20 +833,26 @@ function IterationConfigReviewEditor({
           </span>
         </div>
         <div className="space-y-3">
-          <details open={rubricChanged} className="rounded-lg border border-violet-200 bg-violet-50/50">
-            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800">
-              Rubric Builder
+          <details open={rubricChanged} className="rounded-xl border border-slate-200 bg-white">
+            <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+              <span className="inline-flex items-center gap-1.5 text-slate-900">
+                <FileText className="h-4 w-4 text-slate-800" />
+                Rubric Builder
+              </span>
             </summary>
-            <div className="space-y-2 border-t border-violet-200/70 px-4 pb-4 pt-3">
+            <div className="space-y-2 border-t border-slate-200 px-6 pb-4 pt-3">
               {baselineConfig.criteria.map((criterion) => renderRubricCriterion(criterion, 'base', false))}
             </div>
           </details>
 
-          <details open={feedbackChanged} className="rounded-lg border border-amber-200 bg-amber-50/60">
-            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800">
-              Feedback Setting
+          <details open={feedbackChanged} className="rounded-xl border border-slate-200 bg-white">
+            <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+              <span className="inline-flex items-center gap-1.5 text-slate-900">
+                <MessageSquare className="h-4 w-4 text-slate-800" />
+                Feedback Setting
+              </span>
             </summary>
-            <div className="border-t border-amber-200/70 px-4 pb-4 pt-3">
+            <div className="border-t border-slate-200 px-4 pb-4 pt-3">
               <div className="rounded-md border border-amber-100 bg-white p-2">
                 <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
                 <DiffTextPreview oldText={baselineInstruction} newText={revisedInstruction} mode="old" />
@@ -860,9 +869,12 @@ function IterationConfigReviewEditor({
           </span>
         </div>
         <div className="space-y-3">
-          <details open={rubricChanged} className="rounded-lg border border-violet-200 bg-violet-50/50">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-slate-800">
-              <span>Rubric Builder</span>
+          <details open={rubricChanged} className="rounded-xl border border-slate-200 bg-white">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
+              <span className="inline-flex items-center gap-1.5 text-slate-900">
+                <FileText className="h-4 w-4 text-slate-800" />
+                Rubric Builder
+              </span>
               <button
                 type="button"
                 onClick={(e) => {
@@ -876,7 +888,7 @@ function IterationConfigReviewEditor({
                 {isRubricEditing ? 'Done Editing' : 'Edit'}
               </button>
             </summary>
-            <div className="space-y-2 border-t border-violet-200/70 px-4 pb-4 pt-3">
+            <div className="space-y-2 border-t border-slate-200 px-6 pb-4 pt-3">
               {revisedConfig.criteria.map((criterion, idx) => {
                 const baselineCriterion = baselineConfig.criteria.find((row) => row.id === criterion.id) || baselineConfig.criteria[idx];
                 return renderRubricCriterion(criterion, 'rev', isRubricEditing, baselineCriterion);
@@ -884,9 +896,12 @@ function IterationConfigReviewEditor({
             </div>
           </details>
 
-          <details open={feedbackChanged} className="rounded-lg border border-amber-200 bg-amber-50/60">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-slate-800">
-              <span>Feedback Setting</span>
+          <details open={feedbackChanged} className="rounded-xl border border-slate-200 bg-white">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
+              <span className="inline-flex items-center gap-1.5 text-slate-900">
+                <MessageSquare className="h-4 w-4 text-slate-800" />
+                Feedback Setting
+              </span>
               <button
                 type="button"
                 onClick={(e) => {
@@ -900,7 +915,7 @@ function IterationConfigReviewEditor({
                 {isRubricEditing ? 'Done Editing' : 'Edit'}
               </button>
             </summary>
-            <div className="border-t border-amber-200/70 px-4 pb-4 pt-3">
+            <div className="border-t border-slate-200 px-4 pb-4 pt-3">
               <div className="rounded-md border border-emerald-200 bg-white p-2">
                 <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   {isRubricEditing ? 'Feedback Instructions' : 'Inline Diff Preview'}
@@ -930,7 +945,7 @@ function ScoreConsistencyChart({
 }) {
   const W = 640;
   const H = 280;
-  const ml = 36, mr = 12, mt = 20, mb = 90;
+  const ml = 36, mr = 12, mt = 20, mb = 120;
   const cw = W - ml - mr;
   const ch = H - mt - mb;
 
@@ -1461,7 +1476,7 @@ export default function PromptPlayground() {
     const initialConfig = makeDefaultConfig();
     const item: EditableSet = {
       id: crypto.randomUUID(),
-      name: `New Prompt ${promptSets.length + 1}`,
+      name: `Assignment Instructions ${promptSets.length + 1}`,
       config: initialConfig,
       configured: false,
       updatedAt: new Date().toISOString(),
@@ -2054,7 +2069,7 @@ export default function PromptPlayground() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="min-h-screen w-full bg-[#FBFAF9] px-4 py-6"
+      className="min-h-screen w-full bg-[var(--background)] px-4 py-6"
     >
       {toastMessage && (
         <div className="fixed top-28 left-1/2 z-50 -translate-x-1/2 flex items-center gap-2.5 rounded-full border border-emerald-200 bg-emerald-50 px-5 py-2.5 shadow-lg">
@@ -2065,10 +2080,10 @@ export default function PromptPlayground() {
       <div className="mx-auto w-full max-w-7xl">
       {view === 'dashboard' && (
         <div className="container py-2">
-          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="font-display text-3xl tracking-tight">My Prompt</h1>
-              <p className="mt-1 text-slate-500">Design and optimize your AI grading prompts</p>
+              <h1 className="text-2xl font-bold text-slate-900">Grading Playground</h1>
+              <p className="text-sm text-slate-500">Test and improve your AI instructions</p>
             </div>
           </div>
 
@@ -2087,24 +2102,21 @@ export default function PromptPlayground() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <button
               onClick={createSet}
-              className="flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50/60 transition-all hover:border-indigo-400 hover:shadow-md"
+              className="group flex min-h-[180px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] p-6 text-center transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/10"
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
-                <Plus className="h-6 w-6 text-slate-600" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-500 transition-colors duration-200 group-hover:bg-indigo-500/20">
+                <Plus className="h-6 w-6" />
               </div>
-              <span className="text-sm font-medium text-slate-600">Create New Prompt</span>
+              <span className="text-sm font-semibold text-slate-700">Create New Grading Setup</span>
             </button>
 
             {filteredSets.map((row) => (
-              <div key={row.id} className="group relative rounded-lg border border-slate-200 bg-slate-50/60 p-5 transition-all hover:border-indigo-200 hover:shadow-md">
+              <div key={row.id} className="group relative rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/10">
                 <div className="mb-3 flex items-start justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100">
-                      <FileText className="h-4 w-4 text-slate-500" />
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-500">
+                      <FileText className="h-5 w-5" />
                     </div>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                      {row.config.subject || 'No subject'}
-                    </span>
                   </div>
                   <button
                     onClick={() => deleteSet(row.id)}
@@ -2118,17 +2130,16 @@ export default function PromptPlayground() {
                 <input
                   defaultValue={row.name}
                   onBlur={(e) => renameSet(row.id, e.target.value)}
-                  className="mb-1 w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 font-display text-lg leading-tight focus:border-slate-200 focus:bg-slate-50 focus:outline-none"
+                  className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-lg font-medium leading-tight text-slate-900 focus:border-slate-200 focus:bg-slate-50 focus:outline-none"
                 />
-                <p className="line-clamp-2 text-sm text-slate-500">{row.config.assignmentDesc || 'No description yet.'}</p>
 
-                <div className="mt-4 flex items-center justify-between border-t pt-4">
+                <div className="mt-4 flex items-center justify-between border-t border-[var(--card-border)] pt-4">
                   <span className="text-xs text-slate-400">
                     {new Date(row.updatedAt).toLocaleDateString()} • {row.versions.length} versions
                   </span>
                   <button
                     onClick={() => openSet(row.id, 'builder')}
-                    className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                    className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     Open
                   </button>
@@ -2140,8 +2151,8 @@ export default function PromptPlayground() {
       )}
 
       {view === 'builder' && activeSet && (
-        <div className="container py-2">
-          <div className="mb-4 flex items-center gap-3">
+        <div className="flex items-start gap-3 px-4">
+          <div className="pt-2">
             <button
               onClick={() => setView('dashboard')}
               className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
@@ -2149,93 +2160,91 @@ export default function PromptPlayground() {
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
+          </div>
 
-            <div className="min-w-0 flex-1">
-              {isRenamingTitle ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    className="h-9 w-full max-w-md rounded-lg border border-slate-200 px-3 text-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+          <div className="min-w-0 flex-1">
+        <div className="container py-2">
+          <div className={`mb-4 flex items-center ${isSetupMode ? 'mx-auto max-w-6xl' : ''}`}>
+              <div className="min-w-0 flex-1">
+                {isRenamingTitle ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      className="h-9 w-full max-w-md rounded-lg border border-slate-200 px-3 text-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          renameSet(activeSet.id, renameValue);
+                          setIsRenamingTitle(false);
+                        }
+                        if (e.key === 'Escape') {
+                          setRenameValue(activeSet.name);
+                          setIsRenamingTitle(false);
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
                         renameSet(activeSet.id, renameValue);
                         setIsRenamingTitle(false);
-                      }
-                      if (e.key === 'Escape') {
+                      }}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-slate-100"
+                    >
+                      <Check className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => {
                         setRenameValue(activeSet.name);
                         setIsRenamingTitle(false);
-                      }
-                    }}
-                  />
-                  <button
-                    onClick={() => {
-                      renameSet(activeSet.id, renameValue);
-                      setIsRenamingTitle(false);
-                    }}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-slate-100"
-                  >
-                    <Check className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setRenameValue(activeSet.name);
-                      setIsRenamingTitle(false);
-                    }}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-slate-100"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <h1 className="truncate font-display text-xl">{activeSet.name}</h1>
-                  <button
-                    onClick={() => setIsRenamingTitle(true)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                      }}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-slate-100"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <h1 className="truncate font-display text-xl font-semibold">{activeSet.name}</h1>
+                    <button
+                      onClick={() => setIsRenamingTitle(true)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {!isSetupMode && (
+                <button
+                  onClick={() => setConfigCollapsed((v) => !v)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
+                  title={configCollapsed ? 'Open configuration' : 'Collapse configuration'}
+                >
+                  {configCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                </button>
               )}
-              <p className="text-xs text-slate-500">Prompt Builder</p>
-            </div>
 
           </div>
 
           {isSetupMode ? (
             <div className="mx-auto max-w-6xl">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <p className="text-lg font-semibold text-slate-800">Initial Prompt Setup</p>
-                  <p className="text-sm text-slate-500">Set up the configuration first, then continue into the prompt builder.</p>
-                </div>
-                <button
-                  onClick={saveSetupAndEnterBuilder}
-                  disabled={!validation.valid}
-                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Save className="h-4 w-4" />
-                  Save Setup
-                </button>
-              </div>
-
-              <div className="space-y-3">
+              <div className="space-y-3 pb-24">
 
 
-                <details open className="rounded-lg border border-violet-200 bg-violet-50/50">
-                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800">
-                    Rubric Builder
+                <details open className="rounded-xl border border-slate-200 bg-white">
+                  <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+                    <span className="inline-flex items-center gap-1.5 text-slate-900">
+                      <FileText className="h-4 w-4 text-slate-800" />
+                      Rubric Builder
+                    </span>
                   </summary>
-                  <div className="border-t border-violet-200/70 px-4 pb-4 pt-3">
+                  <div className="border-t border-slate-200 px-6 pb-4 pt-3">
                     <div className="mb-3 flex items-center justify-between">
-                      <p className="text-xs text-slate-600">
-                        Edit the grading standard itself: criteria names, score ranges, and what each score level means.
-                      </p>
                       <button
                         onClick={() => setConfig((c) => ({ ...c, criteria: PREDEFINED_RUBRIC }))}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-100/50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-200/50 hover:text-violet-800"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 hover:text-indigo-800"
                       >
                         <Upload className="h-3.5 w-3.5" />
                         Import Rubric
@@ -2248,17 +2257,17 @@ export default function PromptPlayground() {
                   </div>
                 </details>
 
-                <details open className="rounded-lg border border-amber-200 bg-amber-50/60">
-                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800">
-                    Feedback Setting
+                <details open className="rounded-xl border border-slate-200 bg-white">
+                  <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+                    <span className="inline-flex items-center gap-1.5 text-slate-900">
+                      <MessageSquare className="h-4 w-4 text-slate-800" />
+                      Feedback Setting
+                    </span>
                   </summary>
-                  <div className="space-y-3 border-t border-amber-200/70 px-4 pb-4 pt-3">
-                    <p className="text-xs text-slate-600">
-                      Select tags to import predefined feedback prompts. Criterion interpretation and justification structure are fixed.
-                    </p>
+                  <div className="space-y-3 border-t border-amber-200/80 px-6 pb-4 pt-3">
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Feedback Format</p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                         {[
                           { value: 'paragraph' as const, label: 'Flow Text' },
                           { value: 'bullets' as const, label: 'Bullet Points' },
@@ -2267,7 +2276,7 @@ export default function PromptPlayground() {
                             key={`setup-format-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ format: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2276,13 +2285,13 @@ export default function PromptPlayground() {
                     </div>
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Length</p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                         {LENGTH_TAG_OPTIONS.map((option) => (
                           <button
                             key={`setup-length-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ lengthPreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2291,13 +2300,13 @@ export default function PromptPlayground() {
                     </div>
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Tone</p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                         {TONE_TAG_OPTIONS.map((option) => (
                           <button
                             key={`setup-tone-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ tonePreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).tonePreset === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).tonePreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2306,13 +2315,13 @@ export default function PromptPlayground() {
                     </div>
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Language Level (Wording)</p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                         {WORDING_TAG_OPTIONS.map((option) => (
                           <button
                             key={`setup-wording-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ englishLevelPreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).englishLevelPreset === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).englishLevelPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2320,8 +2329,7 @@ export default function PromptPlayground() {
                       </div>
                     </div>
 
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
+                    <div>
                       <textarea
                         rows={5}
                         value={config.feedbackInstructionText || ''}
@@ -2332,61 +2340,67 @@ export default function PromptPlayground() {
                           }))
                         }
                         placeholder="Click tags to insert predefined prompts. You can edit this text freely."
-                        className="w-full rounded-md border border-slate-200 px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                        className="w-full rounded-md border border-slate-300 bg-white/80 px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
                       />
-                      <p className="mt-2 text-[11px] text-slate-500">Click tags to insert predefined prompts. You can edit this text freely.</p>
+                      <p className="mt-2 text-[11px] text-slate-600">Click tags to insert predefined prompts. You can edit this text freely.</p>
                     </div>
                   </div>
                 </details>
 
+              </div>
+
+              <div className="sticky bottom-0 z-10 mt-4 border-t border-slate-200 bg-[var(--background)] pt-3 backdrop-blur-sm">
+                <button
+                  onClick={saveSetupAndEnterBuilder}
+                  disabled={!validation.valid}
+                  className="mb-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Save className="h-4 w-4" />
+                  Save Setup
+                </button>
+
                 {!validation.valid && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-                    {validation.errors[0]}
-                  </div>
+                  <p className="mt-2 pb-2 text-center text-xs text-red-600">{validation.errors[0]}</p>
                 )}
               </div>
             </div>
           ) : (
             <div className="flex flex-col gap-6 xl:flex-row">
-              <div className="shrink-0">
+              <div className={`shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out ${configCollapsed ? 'w-10' : 'w-full xl:w-[420px]'}`}>
                 {configCollapsed ? (
-                  <div className="flex items-center justify-center pt-1">
-                    <button
-                      onClick={() => setConfigCollapsed(false)}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
-                      title="Open configuration"
-                    >
-                      <PanelLeftOpen className="h-4 w-4" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => setConfigCollapsed(false)}
+                    className="flex h-[calc(100vh-190px)] w-10 flex-col items-center rounded-xl border border-slate-200 bg-white pt-5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600 active:bg-slate-100"
+                    title="Open configuration"
+                  >
+                    <FileText className="mb-3 h-4 w-4 shrink-0" />
+                    <span className="rotate-180 [writing-mode:vertical-rl] text-[10px] font-semibold uppercase tracking-widest">
+                      Config
+                    </span>
+                  </button>
                 ) : (
-                  <div className="w-full xl:w-[380px] transition-all duration-300">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h2 className="text-sm font-medium">Prompt Configuration</h2>
-                      <div className="inline-flex items-center gap-2">
-                        <button
-                          onClick={saveBuilderConfig}
-                          className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
-                        >
-                          {savedPulse ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-                          {savedPulse ? 'Saved' : 'Save'}
-                        </button>
-                        <button
-                          onClick={() => setConfigCollapsed(true)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
-                          title="Collapse configuration"
-                        >
-                          <PanelLeftClose className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-
+                  <div className="w-full xl:w-[420px]">
                     {!isSetupMode && (
-                      <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+                      <div className="mb-3 flex items-center gap-2">
                         <select
                           value={selectedVersionId}
-                          onChange={(e) => setSelectedVersionId(e.target.value)}
-                          className="w-full sm:min-w-[220px] rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            setSelectedVersionId(id);
+                            if (!activeSetId || !activeSet || !id) return;
+                            const found = activeSet.versions.find((v) => v.id === id);
+                            if (!found) return;
+                            const now = new Date().toISOString();
+                            const next = promptSets.map((row) => {
+                              if (row.id !== activeSetId) return row;
+                              return { ...row, config: cloneConfig(found.config), currentVersionId: found.id, updatedAt: now };
+                            });
+                            setConfig(cloneConfig(found.config));
+                            persistSets(next, activeSetId);
+                            setSavedPulse(true);
+                            setTimeout(() => setSavedPulse(false), 1500);
+                          }}
+                          className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                         >
                           {activeVersions.map((version) => (
                             <option key={version.id} value={version.id}>
@@ -2395,44 +2409,44 @@ export default function PromptPlayground() {
                           ))}
                         </select>
                         <button
-                          onClick={loadVersionIntoBuilder}
-                          disabled={!selectedVersionId}
-                          className="rounded-md border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={saveBuilderConfig}
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-900"
                         >
-                          Preview
+                          {savedPulse ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+                          {savedPulse ? 'Saved' : 'Save'}
                         </button>
+                      </div>
+                    )}
+
+                    {isSetupMode && (
+                      <div className="mb-3 flex justify-end">
                         <button
-                          onClick={rollbackToVersion}
-                          disabled={!selectedVersionId}
-                          className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={saveBuilderConfig}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-900"
                         >
-                          Restore as Current
+                          {savedPulse ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+                          {savedPulse ? 'Saved' : 'Save'}
                         </button>
-                        <span className="text-xs text-slate-500">Current: {activeSet.versions.length} saved versions</span>
-                        <p className="w-full text-[11px] text-slate-500">
-                          Preview only loads the selected version into the editor. Restore as Current saves that version as the active one.
-                        </p>
                       </div>
                     )}
 
                     <div className="h-[calc(100vh-190px)] space-y-3 overflow-y-auto">
-                      <details open className="rounded-lg border border-violet-200 bg-violet-50/50">
-                        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800">
-                          Rubric Builder
+                      <details open className="rounded-xl border border-slate-200 bg-white">
+                        <summary className="flex cursor-pointer list-none items-center justify-between bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+                          <span className="inline-flex items-center gap-1.5 text-slate-900">
+                            <FileText className="h-4 w-4 text-slate-800" />
+                            Rubric Builder
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfig((c) => ({ ...c, criteria: PREDEFINED_RUBRIC })); }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 hover:text-indigo-800"
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            Import Rubric
+                          </button>
                         </summary>
-                        <div className="border-t border-violet-200/70 px-4 pb-4 pt-3">
-                          <div className="mb-3 flex items-center justify-between">
-                            <p className="text-xs text-slate-600">
-                              Edit the grading standard itself: criteria names, score ranges, and what each score level means.
-                            </p>
-                            <button
-                              onClick={() => setConfig((c) => ({ ...c, criteria: PREDEFINED_RUBRIC }))}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-100/50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-200/50 hover:text-violet-800"
-                            >
-                              <Upload className="h-3.5 w-3.5" />
-                              Import Rubric
-                            </button>
-                          </div>
+                        <div className="border-t border-slate-200 px-6 pb-4 pt-3">
                           <RubricTable
                             criteria={config.criteria}
                             onChange={(criteria) => setConfig((c) => ({ ...c, criteria }))}
@@ -2440,17 +2454,17 @@ export default function PromptPlayground() {
                         </div>
                       </details>
 
-                      <details open className="rounded-lg border border-amber-200 bg-amber-50/60">
-                        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800">
-                          Feedback Setting
+                      <details open className="rounded-xl border border-slate-200 bg-white">
+                        <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+                          <span className="inline-flex items-center gap-1.5 text-slate-900">
+                            <MessageSquare className="h-4 w-4 text-slate-800" />
+                            Feedback Setting
+                          </span>
                         </summary>
-                        <div className="space-y-3 border-t border-amber-200/70 px-4 pb-4 pt-3">
-                          <p className="text-xs text-slate-600">
-                            Select tags to import predefined feedback prompts. Criterion interpretation and justification structure are fixed.
-                          </p>
+                        <div className="space-y-3 border-t border-amber-200/80 px-6 pb-4 pt-3">
                           <div>
                             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Feedback Format</p>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                               {[
                                 { value: 'paragraph' as const, label: 'Flow Text' },
                                 { value: 'bullets' as const, label: 'Bullet Points' },
@@ -2459,7 +2473,7 @@ export default function PromptPlayground() {
                                   key={`builder-format-${option.value}`}
                                   type="button"
                                   onClick={() => updateFeedbackBehaviorAndImport({ format: option.value })}
-                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                                 >
                                   {option.label}
                                 </button>
@@ -2468,13 +2482,13 @@ export default function PromptPlayground() {
                           </div>
                           <div>
                             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Length</p>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                               {LENGTH_TAG_OPTIONS.map((option) => (
                                 <button
                                   key={`builder-length-${option.value}`}
                                   type="button"
                                   onClick={() => updateFeedbackBehaviorAndImport({ lengthPreset: option.value })}
-                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                                 >
                                   {option.label}
                                 </button>
@@ -2483,13 +2497,13 @@ export default function PromptPlayground() {
                           </div>
                           <div>
                             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Tone</p>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                               {TONE_TAG_OPTIONS.map((option) => (
                                 <button
                                   key={`builder-tone-${option.value}`}
                                   type="button"
                                   onClick={() => updateFeedbackBehaviorAndImport({ tonePreset: option.value })}
-                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).tonePreset === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).tonePreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                                 >
                                   {option.label}
                                 </button>
@@ -2498,13 +2512,13 @@ export default function PromptPlayground() {
                           </div>
                           <div>
                             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Language Level (Wording)</p>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                               {WORDING_TAG_OPTIONS.map((option) => (
                                 <button
                                   key={`builder-wording-${option.value}`}
                                   type="button"
                                   onClick={() => updateFeedbackBehaviorAndImport({ englishLevelPreset: option.value })}
-                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).englishLevelPreset === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).englishLevelPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                                 >
                                   {option.label}
                                 </button>
@@ -2512,8 +2526,7 @@ export default function PromptPlayground() {
                             </div>
                           </div>
 
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
+                          <div>
                             <textarea
                               rows={5}
                               value={config.feedbackInstructionText || ''}
@@ -2524,9 +2537,9 @@ export default function PromptPlayground() {
                                 }))
                               }
                               placeholder="Click tags to insert predefined prompts. You can edit this text freely."
-                              className="w-full rounded-md border border-slate-200 px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                              className="w-full rounded-md border border-slate-300 bg-white/80 px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
                             />
-                            <p className="mt-2 text-[11px] text-slate-500">Click tags to insert predefined prompts. You can edit this text freely.</p>
+                            <p className="mt-2 text-[11px] text-slate-600">Click tags to insert predefined prompts. You can edit this text freely.</p>
                           </div>
                         </div>
                       </details>
@@ -2559,7 +2572,7 @@ export default function PromptPlayground() {
                 <div className="mb-4 space-y-3">
                   <div className={`grid gap-3 ${essays.length === 1 ? 'grid-cols-1' : essays.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
                     {essays.map((essay, index) => (
-                      <div key={essay.id} className="rounded-xl bg-slate-50/60 p-3">
+                      <div key={essay.id}>
                         <div className="mb-2 flex items-center justify-between">
                           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Essay {index + 1}</p>
                           <div className="flex items-center gap-1">
@@ -2802,13 +2815,15 @@ export default function PromptPlayground() {
             </div>
           )}
         </div>
+        </div>
+        </div>
       )}
 
       {view === 'optimizer' && activeSet && (
         <div className="container pb-28 py-2">
 
           {/* ── Sticky header ── */}
-          <div className="sticky top-0 z-20 -mx-4 mb-6 border-b border-slate-200 bg-[#FBFAF9]/95 px-4 py-3 backdrop-blur-sm">
+          <div className="sticky top-0 z-20 -mx-4 mb-6 border-b border-slate-200 bg-[var(--background)] px-4 py-3 backdrop-blur-sm">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setView('builder')}
@@ -2837,23 +2852,22 @@ export default function PromptPlayground() {
               <h2 className="text-sm font-semibold text-slate-900">Current Prompt Config</h2>
               <p className="mt-1 text-xs text-slate-500">Use the same controls as Builder: Rubric Builder and Feedback Setting.</p>
               <div className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-1">
-                <details open className="rounded-lg border border-violet-200 bg-violet-50/50">
-                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800">
-                    Rubric Builder
+                <details open className="rounded-xl border border-slate-200 bg-white">
+                  <summary className="flex cursor-pointer list-none items-center justify-between bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+                    <span className="inline-flex items-center gap-1.5 text-slate-900">
+                      <FileText className="h-4 w-4 text-slate-800" />
+                      Rubric Builder
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfig((c) => ({ ...c, criteria: PREDEFINED_RUBRIC })); }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 hover:text-indigo-800"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      Import Rubric
+                    </button>
                   </summary>
-                  <div className="border-t border-violet-200/70 px-4 pb-4 pt-3">
-                    <div className="mb-3 flex items-center justify-between">
-                      <p className="text-xs text-slate-600">
-                        Edit the grading standard itself: criteria names, score ranges, and what each score level means.
-                      </p>
-                      <button
-                        onClick={() => setConfig((c) => ({ ...c, criteria: PREDEFINED_RUBRIC }))}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-100/50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-200/50 hover:text-violet-800"
-                      >
-                        <Upload className="h-3.5 w-3.5" />
-                        Import Rubric
-                      </button>
-                    </div>
+                  <div className="border-t border-slate-200 px-6 pb-4 pt-3">
                     <RubricTable
                       criteria={config.criteria}
                       onChange={(criteria) => setConfig((c) => ({ ...c, criteria }))}
@@ -2861,14 +2875,14 @@ export default function PromptPlayground() {
                   </div>
                 </details>
 
-                <details open className="rounded-lg border border-amber-200 bg-amber-50/60">
-                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800">
-                    Feedback Setting
+                <details open className="rounded-xl border border-slate-200 bg-white">
+                  <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+                    <span className="inline-flex items-center gap-1.5 text-slate-900">
+                      <MessageSquare className="h-4 w-4 text-slate-800" />
+                      Feedback Setting
+                    </span>
                   </summary>
-                  <div className="space-y-3 border-t border-amber-200/70 px-4 pb-4 pt-3">
-                    <p className="text-xs text-slate-600">
-                      Select tags to import predefined feedback prompts. Criterion interpretation and justification structure are fixed.
-                    </p>
+                  <div className="space-y-3 border-t border-amber-200/80 px-6 pb-4 pt-3">
                     <div>
                       <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Feedback Format</p>
                       <div className="flex flex-wrap gap-2">
@@ -2880,7 +2894,7 @@ export default function PromptPlayground() {
                             key={`optimizer-format-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ format: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2895,7 +2909,7 @@ export default function PromptPlayground() {
                             key={`optimizer-length-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ lengthPreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2910,7 +2924,7 @@ export default function PromptPlayground() {
                             key={`optimizer-tone-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ tonePreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).tonePreset === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).tonePreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2925,7 +2939,7 @@ export default function PromptPlayground() {
                             key={`optimizer-wording-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ englishLevelPreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).englishLevelPreset === option.value ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).englishLevelPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2945,9 +2959,9 @@ export default function PromptPlayground() {
                           }))
                         }
                         placeholder="Click tags to insert predefined prompts. You can edit this text freely."
-                        className="w-full rounded-md border border-slate-200 px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                        className="w-full rounded-md border border-slate-300 bg-white/80 px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
                       />
-                      <p className="mt-2 text-[11px] text-slate-500">Click tags to insert predefined prompts. You can edit this text freely.</p>
+                      <p className="mt-2 text-[11px] text-slate-600">Click tags to insert predefined prompts. You can edit this text freely.</p>
                     </div>
                   </div>
                 </details>
@@ -3156,7 +3170,7 @@ export default function PromptPlayground() {
 
       {/* ── Sticky bottom Apply bar ── */}
       {view === 'optimizer' && activeSet && sessionIterations.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-[#FBFAF9]/95 px-4 py-3 backdrop-blur-sm">
+        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-[var(--background)] px-4 py-3 backdrop-blur-sm">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3">
             <Sparkles className="h-4 w-4 shrink-0 text-indigo-500" />
             <select
