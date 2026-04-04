@@ -10,6 +10,12 @@ import {
   type EditablePromptSlots,
   type FeedbackStyleConfig,
 } from '@/lib/grading-prompt-system';
+import {
+  buildOptimizeConfigPrompt,
+  buildOptimizeSuggestionsPrompt,
+  extractOptimizationSuggestions,
+  normalizeOptimizedPromptConfig as normalizeOptimizedPromptConfigFromService,
+} from '@/lib/playground-optimizer-service';
 
 const apiKey = process.env.GEMINI_API_KEY || '';
 const defaultGeminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -123,6 +129,143 @@ function asNumber(value: unknown): number | null {
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === 'string');
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return isObject(value) ? value : {};
+}
+
+function toClampedNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = asNumber(value);
+  const safe = parsed === null ? fallback : parsed;
+  return Math.max(min, Math.min(max, safe));
+}
+
+function buildLevelsFromRange(minScore: number, maxScore: number, baseLevels?: Record<string, string>): Record<string, string> {
+  const levels: Record<string, string> = {};
+  for (let score = Math.trunc(maxScore); score >= Math.trunc(minScore); score -= 1) {
+    const key = String(score);
+    const fromBase = baseLevels?.[key];
+    levels[key] = typeof fromBase === 'string' && fromBase.trim() ? fromBase : `Score ${key} description`;
+  }
+  return levels;
+}
+
+function normalizeCriterionLevels(
+  levels: unknown,
+  minScore: number,
+  maxScore: number,
+  baseLevels?: Record<string, string>
+): Record<string, string> {
+  const next = buildLevelsFromRange(minScore, maxScore, baseLevels);
+  if (!isObject(levels)) return next;
+
+  for (const [scoreKey, value] of Object.entries(levels)) {
+    const numeric = Number(scoreKey);
+    if (!Number.isFinite(numeric)) continue;
+    if (numeric < minScore || numeric > maxScore) continue;
+    if (typeof value === 'string' && value.trim()) {
+      next[String(Math.trunc(numeric))] = value;
+    }
+  }
+
+  return next;
+}
+
+function normalizeOptimizedPromptConfig(
+  revisedConfigRaw: Record<string, unknown>,
+  currentConfigRaw: Record<string, unknown>
+): Record<string, unknown> {
+  const currentConfig = asRecord(currentConfigRaw);
+  const currentCriteriaRaw = Array.isArray(currentConfig.criteria) ? currentConfig.criteria : [];
+
+  const baseCriteria = currentCriteriaRaw.map((criterion, index) => {
+    const c = asRecord(criterion);
+    const minScore = toClampedNumber(c.minScore, 0, 0, 100);
+    const maxScore = toClampedNumber(c.maxScore, Math.max(1, minScore + 1), minScore + 1, 100);
+    const levels = normalizeCriterionLevels(c.levels, minScore, maxScore);
+    return {
+      id: typeof c.id === 'string' && c.id.trim() ? c.id : `criterion-${index + 1}`,
+      name: typeof c.name === 'string' && c.name.trim() ? c.name : `Criterion ${index + 1}`,
+      minScore,
+      maxScore,
+      levels,
+    };
+  });
+
+  const revisedCriteriaRaw = Array.isArray(revisedConfigRaw.criteria) ? revisedConfigRaw.criteria : [];
+  const revisedCriteria = revisedCriteriaRaw.map((criterion, index) => {
+    const c = asRecord(criterion);
+    const base = baseCriteria[index];
+    const minScore = toClampedNumber(c.minScore, base?.minScore ?? 0, 0, 100);
+    const maxScore = toClampedNumber(c.maxScore, base?.maxScore ?? Math.max(1, minScore + 1), minScore + 1, 100);
+
+    return {
+      id: typeof c.id === 'string' && c.id.trim() ? c.id : base?.id ?? `criterion-${index + 1}`,
+      name: typeof c.name === 'string' && c.name.trim() ? c.name : base?.name ?? `Criterion ${index + 1}`,
+      minScore,
+      maxScore,
+      levels: normalizeCriterionLevels(
+        c.levels,
+        minScore,
+        maxScore,
+        base?.levels as Record<string, string> | undefined
+      ),
+    };
+  });
+
+  const criteria = revisedCriteria.length > 0 ? revisedCriteria : baseCriteria;
+
+  const feedbackText =
+    typeof revisedConfigRaw.feedbackText === 'string' && revisedConfigRaw.feedbackText.trim()
+      ? revisedConfigRaw.feedbackText
+      : typeof currentConfig.feedbackText === 'string'
+      ? currentConfig.feedbackText
+      : 'Be specific and constructive. Reference evidence from the text.';
+
+  const additionalMaterial =
+    typeof revisedConfigRaw.additionalMaterial === 'string'
+      ? revisedConfigRaw.additionalMaterial
+      : typeof currentConfig.additionalMaterial === 'string'
+      ? currentConfig.additionalMaterial
+      : '';
+
+  const additionalDescription =
+    typeof revisedConfigRaw.additionalDescription === 'string'
+      ? revisedConfigRaw.additionalDescription
+      : typeof currentConfig.additionalDescription === 'string'
+      ? currentConfig.additionalDescription
+      : '';
+
+  return {
+    academicLevel:
+      typeof revisedConfigRaw.academicLevel === 'string'
+        ? revisedConfigRaw.academicLevel
+        : typeof currentConfig.academicLevel === 'string'
+        ? currentConfig.academicLevel
+        : '',
+    subject:
+      typeof revisedConfigRaw.subject === 'string'
+        ? revisedConfigRaw.subject
+        : typeof currentConfig.subject === 'string'
+        ? currentConfig.subject
+        : '',
+    assignmentDesc:
+      typeof revisedConfigRaw.assignmentDesc === 'string'
+        ? revisedConfigRaw.assignmentDesc
+        : typeof currentConfig.assignmentDesc === 'string'
+        ? currentConfig.assignmentDesc
+        : '',
+    feedbackText,
+    criteria,
+    additionalMaterial,
+    showAdditionalMaterial: asBoolean(revisedConfigRaw.showAdditionalMaterial, additionalMaterial.trim().length > 0),
+    additionalDescription,
+    showAdditionalDescription: asBoolean(
+      revisedConfigRaw.showAdditionalDescription,
+      additionalDescription.trim().length > 0
+    ),
+  };
 }
 
 function safeParseJsonObject(text: string): Record<string, unknown> | null {
@@ -271,6 +414,16 @@ export async function POST(request: NextRequest) {
             modelOverride?: string;
           }
         );
+      case 'playgroundOptimizeSuggestions':
+        if (!isObject(payload.currentConfig)) return badRequest('payload.currentConfig must be an object');
+        return handlePlaygroundOptimizeSuggestions(
+          payload as {
+            currentConfig: Record<string, unknown>;
+            essays?: Array<{ text: string }>;
+            gradingResults?: Array<Record<string, unknown>>;
+            modelOverride?: string;
+          }
+        );
       case 'playgroundGrade':
         if (!asString(payload.essayText)) return badRequest('payload.essayText must be a string');
         if (!Array.isArray(payload.criteria)) {
@@ -282,6 +435,18 @@ export async function POST(request: NextRequest) {
             criteria?: Array<{ name: string; scoreRange: { min: number; max: number } }>;
             promptSlots?: EditablePromptSlots;
             styleOverrides?: Partial<FeedbackStyleConfig>;
+            modelOverride?: string;
+          }
+        );
+      case 'playgroundCompareGrade':
+        if (!asString(payload.essayText)) return badRequest('payload.essayText must be a string');
+        if (!isObject(payload.originalConfig)) return badRequest('payload.originalConfig must be an object');
+        if (!isObject(payload.revisedConfig)) return badRequest('payload.revisedConfig must be an object');
+        return handlePlaygroundCompareGrade(
+          payload as {
+            essayText: string;
+            originalConfig: Record<string, unknown>;
+            revisedConfig: Record<string, unknown>;
             modelOverride?: string;
           }
         );
@@ -576,7 +741,7 @@ async function handleGradeCriterion(payload: {
   styleOverrides?: Partial<FeedbackStyleConfig>;
   modelOverride?: string;
 }) {
-  const model = payload.modelOverride || defaultModel;
+  const modelSelection = resolveModelSelection(payload.modelOverride);
   const assessmentType = payload.assessmentType || 'flow';
   const assessmentLength = payload.assessmentLength || 'long';
 
@@ -709,7 +874,7 @@ async function handleGradeCriterion(payload: {
     `;
   }
 
-  const maxTokens = isThinkingModel(model) ? 8192 : 2048;
+  const maxTokens = isThinkingModel(modelSelection) ? 8192 : 2048;
 
   let raw: string;
   if (hasCacheAvailable) {
@@ -874,37 +1039,7 @@ async function handlePlaygroundOptimizeConfig(payload: {
     return NextResponse.json({ error: 'currentConfig and feedback are required' }, { status: 400 });
   }
 
-  const prompt = `
-You are optimizing a JSON grading prompt configuration.
-Revise the config based on feedback while preserving the same output schema.
-
-CURRENT CONFIG JSON:
-${JSON.stringify(payload.currentConfig, null, 2)}
-
-FEEDBACK:
-${payload.feedback}
-
-Return ONLY valid JSON object with these keys:
-{
-  "academicLevel": string,
-  "subject": string,
-  "assignmentDesc": string,
-  "feedbackText": string,
-  "criteria": [
-    {
-      "id": string,
-      "name": string,
-      "minScore": number,
-      "maxScore": number,
-      "levels": {"scoreAsString": "description"}
-    }
-  ],
-  "showAdditionalMaterial": boolean,
-  "additionalMaterial": string,
-  "showAdditionalDescription": boolean,
-  "additionalDescription": string
-}
-`;
+  const prompt = buildOptimizeConfigPrompt(payload.currentConfig, payload.feedback);
 
   const maxTokens = isThinkingModel(modelSelection) ? 8192 : 4096;
   const raw = await callModel(prompt, modelSelection, maxTokens, 0.2);
@@ -918,7 +1053,33 @@ Return ONLY valid JSON object with these keys:
   if (!parsed) {
     return NextResponse.json({ error: 'Invalid optimization response format' }, { status: 502 });
   }
-  return NextResponse.json({ result: { revisedConfig: parsed } });
+
+  const normalized = normalizeOptimizedPromptConfigFromService(parsed, payload.currentConfig);
+  return NextResponse.json({ result: { revisedConfig: normalized } });
+}
+
+async function handlePlaygroundOptimizeSuggestions(payload: {
+  currentConfig: Record<string, unknown>;
+  essays?: Array<{ text: string }>;
+  gradingResults?: Array<Record<string, unknown>>;
+  modelOverride?: string;
+}) {
+  const modelSelection = resolveModelSelection(payload.modelOverride);
+
+  const prompt = buildOptimizeSuggestionsPrompt({
+    currentConfig: payload.currentConfig,
+    essays: payload.essays,
+    gradingResults: payload.gradingResults,
+  });
+
+  const maxTokens = isThinkingModel(modelSelection) ? 4096 : 2048;
+  const raw = await callModel(prompt, modelSelection, maxTokens, 0.2);
+  const cleaned = cleanJsonObject(raw);
+  const parsed = safeParseJsonObject(cleaned);
+
+  const suggestions = extractOptimizationSuggestions(parsed);
+
+  return NextResponse.json({ result: { suggestions } });
 }
 
 /* ============================================================ */
@@ -933,15 +1094,30 @@ async function handlePlaygroundGrade(payload: {
   assessmentType?: 'flow' | 'bullets';
   modelOverride?: string;
 }) {
+  const graded = await gradePlaygroundParity(payload);
+
+  return NextResponse.json({
+    result: graded,
+  });
+}
+
+async function gradePlaygroundParity(payload: {
+  essayText: string;
+  criteria?: Array<{ name: string; scoreRange: { min: number; max: number } }>;
+  promptSlots?: EditablePromptSlots;
+  styleOverrides?: Partial<FeedbackStyleConfig>;
+  assessmentType?: 'flow' | 'bullets';
+  modelOverride?: string;
+}): Promise<{ results: Array<Record<string, unknown>>; metadata: { mode: 'parity'; importable: boolean } }> {
   const modelSelection = resolveModelSelection(payload.modelOverride);
 
   if (!payload.essayText?.trim()) {
-    return NextResponse.json({ error: 'essayText is required' }, { status: 400 });
+    throw new Error('essayText is required');
   }
 
   const criteria = asPlaygroundCriteria(payload.criteria);
   if (!criteria || criteria.length === 0) {
-    return NextResponse.json({ error: 'criteria are required' }, { status: 400 });
+    throw new Error('criteria are required');
   }
 
   const effectivePromptConfig = getEffectivePromptConfig({
@@ -1001,13 +1177,111 @@ async function handlePlaygroundGrade(payload: {
     });
   }
 
+  return {
+    results,
+    metadata: {
+      mode: 'parity',
+      importable: true,
+    },
+  };
+}
+
+function buildConfigCriteriaForParity(config: Record<string, unknown>): Array<{ name: string; scoreRange: { min: number; max: number } }> {
+  if (!Array.isArray(config.criteria)) return [];
+
+  return config.criteria
+    .map((row) => {
+      if (!isObject(row)) return null;
+      const name = asString(row.name);
+      const minScore = asNumber(row.minScore);
+      const maxScore = asNumber(row.maxScore);
+      if (!name || minScore === null || maxScore === null) return null;
+      return {
+        name,
+        scoreRange: {
+          min: minScore,
+          max: maxScore,
+        },
+      };
+    })
+    .filter((row): row is { name: string; scoreRange: { min: number; max: number } } => row !== null);
+}
+
+function toCompareResult(
+  graded: Array<Record<string, unknown>>,
+  criteria: Array<{ name: string; scoreRange: { min: number; max: number } }>
+) {
+  const criteriaWithScores = graded.map((row) => {
+    const criterionName = asString(row.criterionName) || 'Unknown Criterion';
+    const criterion = criteria.find((c) => c.name === criterionName);
+    const score = asNumber(row.score) ?? 0;
+    const feedbackParts = Array.isArray(row.justification)
+      ? row.justification.filter((part): part is string => typeof part === 'string')
+      : [];
+    const evidenceQuotes = Array.isArray(row.evidenceQuotes)
+      ? row.evidenceQuotes
+          .filter((item) => isObject(item) && typeof item.quote === 'string')
+          .map((item) => String(item.quote))
+      : [];
+
+    return {
+      name: criterionName,
+      score,
+      maxScore: criterion?.scoreRange.max ?? 0,
+      feedback: feedbackParts.join(' '),
+      evidenceQuotes,
+    };
+  });
+
+  const overallScore = criteriaWithScores.reduce((sum, row) => sum + row.score, 0);
+  const maxScore = criteria.reduce((sum, row) => sum + row.scoreRange.max, 0);
+
+  return {
+    overallScore,
+    maxScore,
+    criteria: criteriaWithScores,
+  };
+}
+
+async function handlePlaygroundCompareGrade(payload: {
+  essayText: string;
+  originalConfig: Record<string, unknown>;
+  revisedConfig: Record<string, unknown>;
+  modelOverride?: string;
+}) {
+  const originalCriteria = buildConfigCriteriaForParity(payload.originalConfig);
+  const revisedCriteria = buildConfigCriteriaForParity(payload.revisedConfig);
+
+  if (originalCriteria.length === 0 || revisedCriteria.length === 0) {
+    return NextResponse.json({ error: 'Both configs must include valid criteria' }, { status: 400 });
+  }
+
+  const originalSlots = asEditablePromptSlots(payload.originalConfig.promptSlots);
+  const revisedSlots = asEditablePromptSlots(payload.revisedConfig.promptSlots);
+
+  const [original, revised] = await Promise.all([
+    gradePlaygroundParity({
+      essayText: payload.essayText,
+      criteria: originalCriteria,
+      promptSlots: originalSlots,
+      styleOverrides: asFeedbackStyleOverrides(payload.originalConfig.styleOverrides),
+      assessmentType: payload.originalConfig.assessmentType === 'bullets' ? 'bullets' : 'flow',
+      modelOverride: payload.modelOverride,
+    }),
+    gradePlaygroundParity({
+      essayText: payload.essayText,
+      criteria: revisedCriteria,
+      promptSlots: revisedSlots,
+      styleOverrides: asFeedbackStyleOverrides(payload.revisedConfig.styleOverrides),
+      assessmentType: payload.revisedConfig.assessmentType === 'bullets' ? 'bullets' : 'flow',
+      modelOverride: payload.modelOverride,
+    }),
+  ]);
+
   return NextResponse.json({
     result: {
-      results,
-      metadata: {
-        mode: 'parity',
-        importable: true,
-      },
+      original: toCompareResult(original.results, originalCriteria),
+      revised: toCompareResult(revised.results, revisedCriteria),
     },
   });
 }
@@ -1040,3 +1314,4 @@ async function handleValidatePromptImport(payload: {
     },
   });
 }
+

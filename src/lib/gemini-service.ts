@@ -5,6 +5,8 @@ import type {
   AssessmentLength,
   OverallAssessmentResult,
 } from '@/types';
+import type { PromptConfig } from '@/lib/prompt-assembly';
+import type { EditablePromptSlots, FeedbackStyleConfig } from '@/lib/grading-prompt-system';
 
 interface GradeSingleCriterionOptions {
   assessmentType?: AssessmentType;
@@ -35,6 +37,59 @@ interface ReviseResult {
   revisedScore: number;
   rationale: string;
   error?: string;
+}
+
+export interface PlaygroundGradeCriterion {
+  name: string;
+  scoreRange: { min: number; max: number };
+}
+
+export interface PlaygroundGradeResult {
+  results: Array<{
+    criterionName: string;
+    justification: string[];
+    evidenceQuotes: Array<{ quote: string }>;
+    score: number | null;
+    error?: string;
+  }>;
+  metadata: {
+    mode: 'parity';
+    importable: boolean;
+  };
+}
+
+export interface PlaygroundOptimizeResult {
+  revisedConfig: PromptConfig;
+}
+
+export interface PlaygroundSuggestion {
+  id: string;
+  text: string;
+}
+
+export interface PlaygroundCompareGradeResult {
+  original: {
+    overallScore: number;
+    maxScore: number;
+    criteria: Array<{
+      name: string;
+      score: number;
+      maxScore: number;
+      feedback: string;
+      evidenceQuotes: string[];
+    }>;
+  };
+  revised: {
+    overallScore: number;
+    maxScore: number;
+    criteria: Array<{
+      name: string;
+      score: number;
+      maxScore: number;
+      feedback: string;
+      evidenceQuotes: string[];
+    }>;
+  };
 }
 
 async function callApi(action: string, payload: Record<string, unknown>) {
@@ -190,6 +245,114 @@ export const reviseCriterionScoreWithJustification = async (
 };
 
 /**
+ * Optimize builder config using user feedback.
+ */
+export const optimizePlaygroundConfig = async (
+  currentConfig: PromptConfig,
+  feedback: string,
+  modelOverride?: string
+): Promise<PlaygroundOptimizeResult> => {
+  const result = await callApi('playgroundOptimizeConfig', {
+    currentConfig,
+    feedback,
+    modelOverride,
+  });
+
+  const revisedConfig = result?.revisedConfig as PromptConfig | undefined;
+  if (!revisedConfig) {
+    throw new Error('Optimization response did not include revisedConfig');
+  }
+
+  return { revisedConfig };
+};
+
+/**
+ * Grade an essay using prompt slots and style derived from a config.
+ */
+export const gradePlaygroundWithConfig = async (params: {
+  essayText: string;
+  criteria: PlaygroundGradeCriterion[];
+  promptSlots: EditablePromptSlots;
+  styleOverrides?: Partial<FeedbackStyleConfig>;
+  assessmentType?: 'flow' | 'bullets';
+  modelOverride?: string;
+}): Promise<PlaygroundGradeResult> => {
+  const result = await callApi('playgroundGrade', {
+    essayText: params.essayText,
+    criteria: params.criteria,
+    promptSlots: params.promptSlots,
+    styleOverrides: params.styleOverrides,
+    assessmentType: params.assessmentType || 'flow',
+    modelOverride: params.modelOverride,
+  });
+
+  const results = Array.isArray(result?.results) ? result.results : [];
+  const metadata = result?.metadata && typeof result.metadata === 'object'
+    ? result.metadata
+    : { mode: 'parity', importable: false };
+
+  return {
+    results,
+    metadata,
+  };
+};
+
+/**
+ * Generate concise optimization suggestions from current config and recent runs.
+ */
+export const getPlaygroundOptimizationSuggestions = async (params: {
+  currentConfig: PromptConfig;
+  essays?: Array<{ text: string }>;
+  gradingResults?: Array<Record<string, unknown>>;
+  modelOverride?: string;
+}): Promise<PlaygroundSuggestion[]> => {
+  const result = await callApi('playgroundOptimizeSuggestions', {
+    currentConfig: params.currentConfig,
+    essays: params.essays,
+    gradingResults: params.gradingResults,
+    modelOverride: params.modelOverride,
+  });
+
+  return Array.isArray(result?.suggestions)
+    ? result.suggestions.filter(
+        (row: unknown): row is PlaygroundSuggestion =>
+          !!row && typeof row === 'object' && typeof (row as PlaygroundSuggestion).id === 'string' && typeof (row as PlaygroundSuggestion).text === 'string'
+      )
+    : [];
+};
+
+/**
+ * Compare grading outputs between two prompt configurations.
+ */
+export const comparePlaygroundGrades = async (params: {
+  essayText: string;
+  originalConfig: PromptConfig & {
+    promptSlots: EditablePromptSlots;
+    styleOverrides?: Partial<FeedbackStyleConfig>;
+    assessmentType: 'flow' | 'bullets';
+  };
+  revisedConfig: PromptConfig & {
+    promptSlots: EditablePromptSlots;
+    styleOverrides?: Partial<FeedbackStyleConfig>;
+    assessmentType: 'flow' | 'bullets';
+  };
+  modelOverride?: string;
+}): Promise<PlaygroundCompareGradeResult> => {
+  const result = await callApi('playgroundCompareGrade', {
+    essayText: params.essayText,
+    originalConfig: params.originalConfig,
+    revisedConfig: params.revisedConfig,
+    modelOverride: params.modelOverride,
+  });
+
+  if (!result?.original || !result?.revised) {
+    throw new Error('Compare response missing original or revised result');
+  }
+
+  return result as PlaygroundCompareGradeResult;
+};
+
+/**
  * Upload context dump — no longer needed server-side, kept for API compatibility
  */
 export const uploadContextDump = async (
@@ -206,6 +369,10 @@ const geminiService = {
   gradeSingleCriterion,
   generateOverallAssessment,
   reviseCriterionScoreWithJustification,
+  optimizePlaygroundConfig,
+  gradePlaygroundWithConfig,
+  getPlaygroundOptimizationSuggestions,
+  comparePlaygroundGrades,
   uploadContextDump,
 };
 
