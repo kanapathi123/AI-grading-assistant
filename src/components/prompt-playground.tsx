@@ -46,6 +46,7 @@ import {
 
 const SETS_STORAGE_KEY = 'prompt-playground-sets-v2';
 const ACTIVE_SET_KEY = 'prompt-playground-active-set-id-v2';
+const ORIGINAL_CONFIG_OPTION = '__original_config__';
 
 type PlaygroundView = 'dashboard' | 'builder' | 'optimizer';
 
@@ -726,6 +727,19 @@ function IterationConfigReviewEditor({
     onChange({ ...revisedConfig, criteria: nextCriteria });
   };
 
+  const criterionPairs = Array.from({ length: Math.max(baselineConfig.criteria.length, revisedConfig.criteria.length) }, (_, index) => {
+    const revisedCriterion = revisedConfig.criteria[index];
+    const baselineCriterion = revisedCriterion
+      ? baselineConfig.criteria.find((row) => row.id === revisedCriterion.id) || baselineConfig.criteria[index]
+      : baselineConfig.criteria[index];
+
+    return {
+      baselineCriterion,
+      revisedCriterion,
+      key: revisedCriterion?.id || baselineCriterion?.id || `criterion-${index}`,
+    };
+  });
+
   const renderRubricCriterion = (
     criterion: RubricCriterion,
     keyPrefix: string,
@@ -743,7 +757,7 @@ function IterationConfigReviewEditor({
     return (
       <div
         key={`${keyPrefix}-${criterion.id}`}
-        className={`rounded-xl border bg-white p-3 ${!editable && criterionChanged ? 'border-emerald-300' : 'border-slate-200'}`}
+        className={`h-full py-1 ${!editable && criterionChanged ? 'bg-emerald-50/50' : ''}`}
       >
         <div className="mb-2 flex items-center justify-between gap-2">
           {editable ? (
@@ -825,111 +839,107 @@ function IterationConfigReviewEditor({
   };
 
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
-      <div className="p-0">
+    <div className="space-y-3">
+      <div className="grid gap-3 lg:grid-cols-2">
         <div className="mb-2">
           <span className="inline-flex rounded-full border border-slate-300 bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
-            Config {configStartNumber}
+            {configStartNumber === 1 ? 'Original Config' : `Config ${configStartNumber - 1}`}
           </span>
         </div>
-        <div className="space-y-3">
-          <details open={rubricChanged} className="rounded-xl border border-slate-200 bg-white">
-            <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
-              <span className="inline-flex items-center gap-1.5 text-slate-900">
-                <FileText className="h-4 w-4 text-slate-800" />
-                Rubric Builder
-              </span>
-            </summary>
-            <div className="space-y-2 border-t border-slate-200 px-6 pb-4 pt-3">
-              {baselineConfig.criteria.map((criterion) => renderRubricCriterion(criterion, 'base', false))}
-            </div>
-          </details>
-
-          <details open={feedbackChanged} className="rounded-xl border border-slate-200 bg-white">
-            <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
-              <span className="inline-flex items-center gap-1.5 text-slate-900">
-                <MessageSquare className="h-4 w-4 text-slate-800" />
-                Feedback Setting
-              </span>
-            </summary>
-            <div className="border-t border-slate-200 px-4 pb-4 pt-3">
-              <div className="rounded-md border border-amber-100 bg-white p-2">
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
-                <DiffTextPreview oldText={baselineInstruction} newText={revisedInstruction} mode="old" />
-              </div>
-            </div>
-          </details>
-        </div>
-      </div>
-
-      <div className="p-0">
         <div className="mb-2">
           <span className="inline-flex rounded-full border border-emerald-300 bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
-            Config {configStartNumber + 1}
+            {`Config ${configStartNumber}`}
           </span>
         </div>
-        <div className="space-y-3">
-          <details open={rubricChanged} className="rounded-xl border border-slate-200 bg-white">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
-              <span className="inline-flex items-center gap-1.5 text-slate-900">
-                <FileText className="h-4 w-4 text-slate-800" />
-                Rubric Builder
-              </span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onToggleRubricEdit();
-                }}
-                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium ${isRubricEditing ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                {isRubricEditing ? 'Done Editing' : 'Edit'}
-              </button>
-            </summary>
-            <div className="space-y-2 border-t border-slate-200 px-6 pb-4 pt-3">
-              {revisedConfig.criteria.map((criterion, idx) => {
-                const baselineCriterion = baselineConfig.criteria.find((row) => row.id === criterion.id) || baselineConfig.criteria[idx];
-                return renderRubricCriterion(criterion, 'rev', isRubricEditing, baselineCriterion);
-              })}
-            </div>
-          </details>
+      </div>
 
-          <details open={feedbackChanged} className="rounded-xl border border-slate-200 bg-white">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
-              <span className="inline-flex items-center gap-1.5 text-slate-900">
-                <MessageSquare className="h-4 w-4 text-slate-800" />
-                Feedback Setting
-              </span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onToggleRubricEdit();
-                }}
-                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium ${isRubricEditing ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                {isRubricEditing ? 'Done Editing' : 'Edit'}
-              </button>
-            </summary>
-            <div className="border-t border-slate-200 px-4 pb-4 pt-3">
-              <div className="rounded-md border border-emerald-200 bg-white p-2">
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  {isRubricEditing ? 'Feedback Instructions' : 'Inline Diff Preview'}
-                </p>
-                {isRubricEditing ? (
-                  <p className="whitespace-pre-wrap text-xs leading-6 text-slate-700">{revisedInstruction || 'No text.'}</p>
-                ) : (
-                  <DiffTextPreview oldText={baselineInstruction} newText={revisedInstruction} mode="new" />
-                )}
+      <details open={rubricChanged} className="rounded-xl border border-slate-200 bg-white">
+        <summary className="grid cursor-pointer list-none gap-3 lg:grid-cols-2">
+          <div className="flex items-center rounded-lg bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
+            <span className="inline-flex items-center gap-1.5 text-slate-900">
+              <FileText className="h-4 w-4 text-slate-800" />
+              Rubric Builder
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
+            <span className="inline-flex items-center gap-1.5 text-slate-900">
+              <FileText className="h-4 w-4 text-slate-800" />
+              Rubric Builder
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleRubricEdit();
+              }}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium ${isRubricEditing ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {isRubricEditing ? 'Done Editing' : 'Edit'}
+            </button>
+          </div>
+        </summary>
+        <div className="space-y-3 border-t border-slate-200 px-6 pb-4 pt-3">
+          {criterionPairs.map(({ baselineCriterion, revisedCriterion, key }) => (
+            <div key={key} className="grid items-stretch gap-3 lg:grid-cols-2">
+              <div className="min-w-0">
+                {baselineCriterion ? renderRubricCriterion(baselineCriterion, `base-${key}`, false) : null}
+              </div>
+              <div className="min-w-0">
+                {revisedCriterion
+                  ? renderRubricCriterion(revisedCriterion, `rev-${key}`, isRubricEditing, baselineCriterion)
+                  : null}
               </div>
             </div>
-          </details>
+          ))}
         </div>
-      </div>
+      </details>
+
+      <details open={feedbackChanged} className="rounded-xl border border-slate-200 bg-white">
+        <summary className="grid cursor-pointer list-none gap-3 lg:grid-cols-2">
+          <div className="flex items-center rounded-lg bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
+            <span className="inline-flex items-center gap-1.5 text-slate-900">
+              <MessageSquare className="h-4 w-4 text-slate-800" />
+              Feedback Setting
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
+            <span className="inline-flex items-center gap-1.5 text-slate-900">
+              <MessageSquare className="h-4 w-4 text-slate-800" />
+              Feedback Setting
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleRubricEdit();
+              }}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium ${isRubricEditing ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {isRubricEditing ? 'Done Editing' : 'Edit'}
+            </button>
+          </div>
+        </summary>
+        <div className="grid gap-3 border-t border-slate-200 px-4 pb-4 pt-3 lg:grid-cols-2">
+          <div className="rounded-md border border-amber-100 bg-white p-2">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
+            <DiffTextPreview oldText={baselineInstruction} newText={revisedInstruction} mode="old" />
+          </div>
+          <div className="rounded-md border border-emerald-200 bg-white p-2">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              {isRubricEditing ? 'Feedback Instructions' : 'Inline Diff Preview'}
+            </p>
+            {isRubricEditing ? (
+              <p className="whitespace-pre-wrap text-xs leading-6 text-slate-700">{revisedInstruction || 'No text.'}</p>
+            ) : (
+              <DiffTextPreview oldText={baselineInstruction} newText={revisedInstruction} mode="new" />
+            )}
+          </div>
+        </div>
+      </details>
     </div>
   );
 }
@@ -1362,6 +1372,10 @@ export default function PromptPlayground() {
     () => activeIterations.filter((iteration) => optimizerSessionIterationIds.includes(iteration.id)),
     [activeIterations, optimizerSessionIterationIds]
   );
+  const originalSessionConfig = useMemo(
+    () => sessionIterations[sessionIterations.length - 1]?.baselineConfig ?? config,
+    [config, sessionIterations]
+  );
   const iterationTimeline = useMemo(() => [...sessionIterations].reverse(), [sessionIterations]);
 
   const validation = useMemo(() => validateEditableBuilderConfig(config), [config]);
@@ -1417,13 +1431,13 @@ export default function PromptPlayground() {
       return;
     }
     if (!selectedIterationId) {
-      setSelectedIterationId(sessionIterations[0].id);
+      setSelectedIterationId(ORIGINAL_CONFIG_OPTION);
     }
   }, [sessionIterations, selectedIterationId]);
 
   // Sync optimizedConfig to the selected iteration so applyOptimizedConfig always targets the right revision
   useEffect(() => {
-    if (!selectedIterationId) return;
+    if (!selectedIterationId || selectedIterationId === ORIGINAL_CONFIG_OPTION) return;
     const found = sessionIterations.find((iteration) => iteration.id === selectedIterationId);
     if (found) setOptimizedConfig(cloneConfig(found.revisedConfig));
   }, [selectedIterationId, sessionIterations]);
@@ -1879,9 +1893,14 @@ export default function PromptPlayground() {
 
   const handleApplyIteration = () => {
     if (!selectedIterationId) return;
-    const found = sessionIterations.find((iteration) => iteration.id === selectedIterationId);
-    if (!found) return;
-    const target = cloneConfig(found.revisedConfig);
+    const target =
+      selectedIterationId === ORIGINAL_CONFIG_OPTION
+        ? cloneConfig(originalSessionConfig)
+        : (() => {
+            const found = sessionIterations.find((iteration) => iteration.id === selectedIterationId);
+            return found ? cloneConfig(found.revisedConfig) : null;
+          })();
+    if (!target) return;
     setOptimizedConfig(target);
     setConfig(cloneConfig(target));
     updateActiveSetConfig(target);
@@ -2077,9 +2096,9 @@ export default function PromptPlayground() {
           <p className="text-sm font-medium text-emerald-800">{toastMessage}</p>
         </div>
       )}
-      <div className="mx-auto w-full max-w-7xl">
+      <div className="w-full">
       {view === 'dashboard' && (
-        <div className="container py-2">
+        <div className="mx-auto w-full max-w-[2200px] px-4 py-2">
           <div className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-2xl font-bold text-slate-900">Grading Playground</h1>
@@ -2152,7 +2171,7 @@ export default function PromptPlayground() {
 
       {view === 'builder' && activeSet && (
         <div className="flex items-start gap-3 px-4">
-          <div className="pt-2">
+          <div className="flex items-center gap-2 pt-2">
             <button
               onClick={() => setView('dashboard')}
               className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
@@ -2160,48 +2179,52 @@ export default function PromptPlayground() {
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
+
+            {!isSetupMode && configCollapsed && (
+              <button
+                onClick={() => setConfigCollapsed(false)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
+                title="Expand configuration"
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
           <div className="min-w-0 flex-1">
-        <div className="container py-2">
-          <div className={`mb-4 flex items-center ${isSetupMode ? 'mx-auto max-w-6xl' : ''}`}>
+        <div className="mx-auto w-full max-w-[2200px] px-4 py-2">
+          <div className={`mb-4 flex items-center ${isSetupMode ? 'mx-auto max-w-[1800px]' : ''}`}>
               <div className="min-w-0 flex-1">
-                {isRenamingTitle ? (
+                {(!configCollapsed || isSetupMode) && (isRenamingTitle ? (
                   <div className="flex items-center gap-2">
                     <input
                       value={renameValue}
                       onChange={(e) => setRenameValue(e.target.value)}
-                      className="h-9 w-full max-w-md rounded-lg border border-slate-200 px-3 text-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      className="h-9 w-full max-w-[420px] rounded-lg border border-slate-200 px-3 text-xl focus:outline-none focus:ring-2 focus:ring-indigo-300"
                       autoFocus
+                      onBlur={() => {
+                        renameSet(activeSet.id, renameValue);
+                        setIsRenamingTitle(false);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
-                          renameSet(activeSet.id, renameValue);
-                          setIsRenamingTitle(false);
+                          e.currentTarget.blur();
                         }
                         if (e.key === 'Escape') {
-                          setRenameValue(activeSet.name);
+                          renameSet(activeSet.id, renameValue);
                           setIsRenamingTitle(false);
                         }
                       }}
                     />
-                    <button
-                      onClick={() => {
-                        renameSet(activeSet.id, renameValue);
-                        setIsRenamingTitle(false);
-                      }}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-slate-100"
-                    >
-                      <Check className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setRenameValue(activeSet.name);
-                        setIsRenamingTitle(false);
-                      }}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-slate-100"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                    {!isSetupMode && (
+                      <button
+                        onClick={() => setConfigCollapsed(true)}
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
+                        title="Collapse configuration"
+                      >
+                        <PanelLeftClose className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
@@ -2212,24 +2235,23 @@ export default function PromptPlayground() {
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
+                    {!isSetupMode && (
+                      <button
+                        onClick={() => setConfigCollapsed(true)}
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
+                        title="Collapse configuration"
+                      >
+                        <PanelLeftClose className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
-
-              {!isSetupMode && (
-                <button
-                  onClick={() => setConfigCollapsed((v) => !v)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
-                  title={configCollapsed ? 'Open configuration' : 'Collapse configuration'}
-                >
-                  {configCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-                </button>
-              )}
 
           </div>
 
           {isSetupMode ? (
-            <div className="mx-auto max-w-6xl">
+            <div className="mx-auto max-w-[1800px]">
               <div className="space-y-3 pb-24">
 
 
@@ -2365,21 +2387,13 @@ export default function PromptPlayground() {
               </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-6 xl:flex-row">
-              <div className={`shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out ${configCollapsed ? 'w-10' : 'w-full xl:w-[420px]'}`}>
-                {configCollapsed ? (
-                  <button
-                    onClick={() => setConfigCollapsed(false)}
-                    className="flex h-[calc(100vh-190px)] w-10 flex-col items-center rounded-xl border border-slate-200 bg-white pt-5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600 active:bg-slate-100"
-                    title="Open configuration"
-                  >
-                    <FileText className="mb-3 h-4 w-4 shrink-0" />
-                    <span className="rotate-180 [writing-mode:vertical-rl] text-[10px] font-semibold uppercase tracking-widest">
-                      Config
-                    </span>
-                  </button>
-                ) : (
-                  <div className="w-full xl:w-[420px]">
+            <div className="relative">
+              <div className="flex flex-col gap-6 xl:flex-row">
+                <div
+                  className={`shrink-0 overflow-hidden transition-[width,opacity,transform] duration-300 ease-in-out ${configCollapsed ? 'pointer-events-none w-0 -translate-x-4 opacity-0' : 'w-full translate-x-0 opacity-100 xl:w-[420px]'}`}
+                >
+                  {!configCollapsed && (
+                    <div className="flex h-[calc(100vh-190px)] min-h-0 w-full flex-col xl:w-[420px]">
                     {!isSetupMode && (
                       <div className="mb-3 flex items-center gap-2">
                         <select
@@ -2408,13 +2422,6 @@ export default function PromptPlayground() {
                             </option>
                           ))}
                         </select>
-                        <button
-                          onClick={saveBuilderConfig}
-                          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-900"
-                        >
-                          {savedPulse ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-                          {savedPulse ? 'Saved' : 'Save'}
-                        </button>
                       </div>
                     )}
 
@@ -2430,7 +2437,8 @@ export default function PromptPlayground() {
                       </div>
                     )}
 
-                    <div className="h-[calc(100vh-190px)] space-y-3 overflow-y-auto">
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
                       <details open className="rounded-xl border border-slate-200 bg-white">
                         <summary className="flex cursor-pointer list-none items-center justify-between bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
                           <span className="inline-flex items-center gap-1.5 text-slate-900">
@@ -2549,12 +2557,25 @@ export default function PromptPlayground() {
                           {validation.errors[0]}
                         </div>
                       )}
-                    </div>
-                  </div>
-                )}
-              </div>
+                      </div>
 
-              <div className="min-w-0 flex-1">
+                      {!isSetupMode && (
+                        <div className="sticky bottom-0 mt-3 border-t border-slate-200 bg-[var(--background)] pt-3 backdrop-blur-sm">
+                          <button
+                            onClick={saveBuilderConfig}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900"
+                          >
+                            {savedPulse ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                            {savedPulse ? 'Saved' : 'Save'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="min-w-0 flex-1">
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <h2 className="text-sm font-semibold text-slate-800">Student Essays</h2>
                   <div className="flex items-center gap-2">
@@ -2810,8 +2831,10 @@ export default function PromptPlayground() {
                       Run grading to see the results.
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
+
             </div>
           )}
         </div>
@@ -2820,7 +2843,7 @@ export default function PromptPlayground() {
       )}
 
       {view === 'optimizer' && activeSet && (
-        <div className="container pb-28 py-2">
+        <div className="mx-auto w-full max-w-[2200px] px-4 py-2 pb-28">
 
           {/* ── Sticky header ── */}
           <div className="sticky top-0 z-20 -mx-4 mb-6 border-b border-slate-200 bg-[var(--background)] px-4 py-3 backdrop-blur-sm">
@@ -2833,8 +2856,8 @@ export default function PromptPlayground() {
                 <ArrowLeft className="h-4 w-4" />
               </button>
               <div className="min-w-0 flex-1">
-                <h1 className="truncate font-display text-xl">Prompt Optimizer</h1>
-                <p className="text-xs text-slate-500">{activeSet.name} — review → revise → compare → apply</p>
+                <h1 className="truncate font-display text-2xl font-semibold">Improve Grading Instruction</h1>
+                <p className="text-sm text-slate-500">Iteratively refine your instruction through feedback and testing.</p>
               </div>
               <button
                 onClick={() => setView('dashboard')}
@@ -2978,12 +3001,57 @@ export default function PromptPlayground() {
               <h2 className="text-sm font-semibold text-slate-900">Baseline Grading Results</h2>
               <p className="mt-1 text-xs text-slate-500">Latest Builder run for this config.</p>
               {latestBuilderRun.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  <p className="text-xs text-slate-500">Total: {getSetTotal(latestBuilderRun)} / {getMaxTotal(config.criteria)}</p>
-                  <div className="max-h-[380px] space-y-2 overflow-y-auto pr-1">
-                    {latestBuilderRun.map((row) => (
-                      <CriterionResultCard key={`latest-${row.criterionName}`} result={row} criteria={config.criteria} />
-                    ))}
+                <div className="mt-3 space-y-3">
+                  <div className="flex items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                    <div className="text-3xl font-bold leading-none text-slate-800">{getSetTotal(latestBuilderRun)}</div>
+                    <div className="pb-0.5 text-sm font-medium text-slate-600">Overall Score</div>
+                    <div className="pb-0.5 text-sm text-slate-400">/ {getMaxTotal(config.criteria)}</div>
+                  </div>
+
+                  <div className="max-h-[380px] overflow-y-auto">
+                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold">Criterion</th>
+                            <th className="w-20 px-2 py-2 text-left font-semibold">Score</th>
+                            <th className="px-2 py-2 text-left font-semibold">Feedback</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {latestBuilderRun.map((row) => {
+                            const maxScore = config.criteria.find((c) => c.name === row.criterionName)?.maxScore ?? 0;
+                            return (
+                              <tr key={`baseline-${row.criterionName}`} className="border-t border-slate-200 align-top">
+                                <td className="px-3 py-2 font-semibold text-slate-700">{row.criterionName}</td>
+                                <td className="px-2 py-2">
+                                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getScorePillClass(row.score, maxScore)}`}>
+                                    {row.score}/{maxScore || '?'}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2 text-slate-600">
+                                  <p className="text-sm">{row.justification?.[0] || 'No feedback generated.'}</p>
+                                  {row.evidenceQuotes?.length > 0 && (
+                                    <div className="mt-2">
+                                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                        Evidence ({row.evidenceQuotes.length})
+                                      </p>
+                                      <ul className="list-disc space-y-0.5 pl-4 text-xs text-slate-500">
+                                        {row.evidenceQuotes.map((quoteRow, quoteIdx) => (
+                                          <li key={`baseline-${row.criterionName}-evidence-${quoteIdx}`}>
+                                            {quoteRow.quote}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -3178,20 +3246,21 @@ export default function PromptPlayground() {
               onChange={(e) => setSelectedIterationId(e.target.value)}
               className="w-full sm:min-w-[220px] sm:w-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             >
-              {sessionIterations.map((iteration, idx) => (
+              <option value={ORIGINAL_CONFIG_OPTION}>Original Config</option>
+              {iterationTimeline.map((iteration, idx) => (
                 <option key={iteration.id} value={iteration.id}>
-                  Iteration {sessionIterations.length - idx}
+                  Config {idx + 1}
                 </option>
               ))}
             </select>
-            <p className="hidden text-xs text-slate-500 sm:block">Select the iteration to apply to Builder</p>
+            <p className="hidden text-xs text-slate-500 sm:block">Select the config to import to Builder</p>
             <button
               onClick={handleApplyIteration}
               disabled={!selectedIterationId}
               className="sm:ml-auto inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Check className="h-4 w-4" />
-              Apply to Builder
+              Import Config to Builder
             </button>
           </div>
         </div>
