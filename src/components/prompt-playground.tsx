@@ -1372,8 +1372,8 @@ function CompareResultColumn({
       <p className={`text-xs font-semibold ${titleClass}`}>{title}</p>
       <div className="flex items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
         <div className="text-3xl font-bold leading-none text-slate-800">{total}</div>
-        <div className="pb-0.5 text-sm font-medium text-slate-600">Overall Score</div>
         <div className="pb-0.5 text-sm text-slate-400">/ {maxTotal}</div>
+        <div className="pb-0.5 text-sm font-medium text-slate-600">Overall Score</div>
       </div>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <table className="w-full text-sm">
@@ -1391,7 +1391,7 @@ function CompareResultColumn({
                 <tr key={`${title}-${row.criterionName}`} className="border-t border-slate-200 align-top">
                   <td className="px-3 py-2 font-semibold text-slate-700">{row.criterionName}</td>
                   <td className="px-2 py-2">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getScorePillClass(row.score, maxForCriterion)}`}>
+                    <span className="inline-flex rounded-full px-2 py-0.5 text-sm font-semibold bg-slate-100 text-slate-700">
                       {row.score}/{maxForCriterion || '?'}
                     </span>
                   </td>
@@ -1612,6 +1612,7 @@ export default function PromptPlayground() {
   const [isRenamingTitle, setIsRenamingTitle] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [savedPulse, setSavedPulse] = useState(false);
+  const [lastSavedConfig, setLastSavedConfig] = useState<BuilderPromptConfig | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string>('');
 
   const [essays, setEssays] = useState<EssayItem[]>(makeDefaultEssays);
@@ -1712,6 +1713,7 @@ export default function PromptPlayground() {
           setRenameValue(chosen.name);
           setSelectedVersionId(chosen.currentVersionId || chosen.versions[0]?.id || '');
           applyRuntimeState(chosen.runtime || makeDefaultSetRuntime());
+          setLastSavedConfig(cloneConfig(chosen.config));
         }
       }
     } catch {
@@ -2078,6 +2080,7 @@ export default function PromptPlayground() {
 
     persistSets(next, activeSetId);
     setSelectedVersionId(nextVersion.id);
+    setLastSavedConfig(cloneConfig(config));
     setSavedPulse(true);
     setTimeout(() => setSavedPulse(false), 1500);
   };
@@ -2123,6 +2126,7 @@ export default function PromptPlayground() {
     });
 
     setConfig(cloneConfig(found.config));
+    setLastSavedConfig(cloneConfig(found.config));
     persistSets(next, activeSetId);
     setSavedPulse(true);
     setTimeout(() => setSavedPulse(false), 1500);
@@ -2268,7 +2272,7 @@ export default function PromptPlayground() {
   );
 
   const handleApplyIteration = () => {
-    if (!selectedIterationId) return;
+    if (!selectedIterationId || !activeSetId || !activeSet) return;
     const target =
       selectedIterationId === ORIGINAL_CONFIG_OPTION
         ? cloneConfig(originalSessionConfig)
@@ -2277,18 +2281,34 @@ export default function PromptPlayground() {
             return found ? cloneConfig(found.revisedConfig) : null;
           })();
     if (!target) return;
+
+    const now = new Date().toISOString();
+    const nextVersion = createVersion(target, activeSet.versions.length + 1);
+    const nextSets = promptSets.map((row) => {
+      if (row.id !== activeSetId) return row;
+      return {
+        ...row,
+        config: cloneConfig(target),
+        updatedAt: now,
+        versions: [nextVersion, ...row.versions.map(cloneVersion)],
+        currentVersionId: nextVersion.id,
+      };
+    });
+
     setOptimizedConfig(target);
     setConfig(cloneConfig(target));
-    updateActiveSetConfig(target);
+    setLastSavedConfig(cloneConfig(target));
+    persistSets(nextSets, activeSetId);
+    setSelectedVersionId(nextVersion.id);
     setView('builder');
-    setToastMessage('Config successfully imported to Prompt Builder');
+    setToastMessage('Config imported as a new version in Prompt Builder');
     setTimeout(() => setToastMessage(null), 3000);
   };
 
   const renderFeedbackComposer = () => (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="space-y-1.5">
-        <h2 className="text-xl font-semibold tracking-tight text-slate-900">What would you like to improve?</h2>
+        <h2 className="text-xl font-semibold tracking-tight text-slate-900">What would you like to improve from the latest grading?</h2>
       </div>
 
       <div className="mt-4 grid gap-3">
@@ -2431,9 +2451,25 @@ export default function PromptPlayground() {
   };
 
   const applyOptimizedConfig = () => {
-    if (!optimizedConfig) return;
+    if (!optimizedConfig || !activeSetId || !activeSet) return;
+
+    const now = new Date().toISOString();
+    const nextVersion = createVersion(optimizedConfig, activeSet.versions.length + 1);
+    const nextSets = promptSets.map((row) => {
+      if (row.id !== activeSetId) return row;
+      return {
+        ...row,
+        config: cloneConfig(optimizedConfig),
+        updatedAt: now,
+        versions: [nextVersion, ...row.versions.map(cloneVersion)],
+        currentVersionId: nextVersion.id,
+      };
+    });
+
     setConfig(cloneConfig(optimizedConfig));
-    updateActiveSetConfig(optimizedConfig);
+    setLastSavedConfig(cloneConfig(optimizedConfig));
+    persistSets(nextSets, activeSetId);
+    setSelectedVersionId(nextVersion.id);
     setView('builder');
   };
 
@@ -2782,7 +2818,9 @@ export default function PromptPlayground() {
                       <div className="mb-3 flex justify-end">
                         <button
                           onClick={saveBuilderConfig}
-                          className="inline-flex items-center gap-1.5 rounded-md bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-900"
+                          disabled={savedPulse || !lastSavedConfig || JSON.stringify(config) === JSON.stringify(lastSavedConfig)}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors
+                            ${savedPulse ? 'bg-emerald-600 text-white' : (JSON.stringify(config) !== JSON.stringify(lastSavedConfig) ? 'bg-slate-800 text-white hover:bg-slate-900' : 'bg-slate-300 text-slate-400 cursor-not-allowed')}`}
                         >
                           {savedPulse ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
                           {savedPulse ? 'Saved' : 'Save'}
@@ -2893,7 +2931,9 @@ export default function PromptPlayground() {
                         <div className="sticky bottom-0 mt-3 border-t border-slate-200 bg-[var(--background)] pt-3 backdrop-blur-sm">
                           <button
                             onClick={saveBuilderConfig}
-                            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900"
+                            disabled={savedPulse || !lastSavedConfig || JSON.stringify(config) === JSON.stringify(lastSavedConfig)}
+                            className={`inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors
+                              ${savedPulse ? 'bg-emerald-600 text-white' : (JSON.stringify(config) !== JSON.stringify(lastSavedConfig) ? 'bg-slate-800 text-white hover:bg-slate-900' : 'bg-slate-300 text-slate-400 cursor-not-allowed')}`}
                           >
                             {savedPulse ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                             {savedPulse ? 'Saved' : 'Save'}
@@ -3037,7 +3077,8 @@ export default function PromptPlayground() {
                       }
                       setView('optimizer');
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-100 px-3 py-2 text-sm font-semibold text-sky-800 shadow-sm transition-colors hover:bg-sky-200"
+                    disabled={gradingLoading}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-100 px-3 py-2 text-sm font-semibold text-sky-800 shadow-sm transition-colors hover:bg-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     Improve Grading
@@ -3102,8 +3143,8 @@ export default function PromptPlayground() {
                                         )}
                                         <div className="flex items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
                                           <div className="text-3xl font-bold leading-none text-slate-800">{total}</div>
-                                          <div className="pb-0.5 text-sm font-medium text-slate-600">Overall Score</div>
                                           <div className="pb-0.5 text-sm text-slate-400">/ {maxTotal}</div>
+                                          <div className="pb-0.5 text-sm font-medium text-slate-600">Overall Score</div>
                                         </div>
                                         <div className="overflow-hidden rounded-xl border border-slate-200">
                                           <table className="w-full text-sm">
@@ -3121,7 +3162,7 @@ export default function PromptPlayground() {
                                                   <tr key={`${essayIdx}-${runIdx}-${row.criterionName}`} className="border-t border-slate-200 align-top">
                                                     <td className="px-3 py-2 font-semibold text-slate-700">{row.criterionName}</td>
                                                     <td className="px-2 py-2">
-                                                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getScorePillClass(row.score, maxScore)}`}>
+                                                      <span className="inline-flex rounded-full px-2 py-0.5 text-sm font-semibold bg-slate-100 text-slate-700">
                                                         {row.score}/{maxScore || '?'}
                                                       </span>
                                                     </td>

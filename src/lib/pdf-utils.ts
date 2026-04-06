@@ -32,19 +32,39 @@ export const extractTextFromPdf = async (
     const pdf = await loadingTask.promise;
 
     let fullTextContent = '';
-
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-
       fullTextContent += `[PAGE ${i}]\n`;
-      const pageText = content.items
-        .map((item) => ('str' in item ? item.str : ''))
-        .join(' ');
+      // Smart join: avoid spaces inside words
+      const items = content.items.map((item) => ('str' in item ? item.str : ''));
+      let pageText = '';
+      for (let j = 0; j < items.length; j++) {
+        const curr = items[j];
+        const prev = items[j - 1] || '';
+        // If both prev and curr are alphanumeric, don't add a space
+        if (j > 0 && /[a-zA-Z0-9]$/.test(prev) && /^[a-zA-Z0-9]/.test(curr)) {
+          pageText += curr;
+        } else {
+          if (j > 0) pageText += ' ';
+          pageText += curr;
+        }
+      }
       fullTextContent += pageText + '\n\n';
     }
 
-    return fullTextContent.trim();
+    // --- Post-processing to fix hyphenation and page breaks ---
+    let text = fullTextContent.trim();
+
+    // Remove hyphenation at line breaks and page breaks (e.g., 'expec- tations', 'function- [PAGE 2] ality')
+    // 1. Remove hyphen + space/newline + [PAGE ...] + space/newline
+    text = text.replace(/-\s*\[PAGE \d+\]\s*/g, '');
+    // 2. Remove hyphen + space/newline (within a page)
+    text = text.replace(/-\s+/g, '');
+    // 3. Remove extra spaces before/after page markers
+    text = text.replace(/\s*\[PAGE (\d+)\]\s*/g, '\n[PAGE $1]\n');
+
+    return text;
   } catch {
     return '';
   }
