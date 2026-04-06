@@ -10,7 +10,6 @@ import {
   FileText,
   FlaskConical,
   Info,
-  LayoutDashboard,
   Loader2,
   MessageSquare,
   Pencil,
@@ -43,10 +42,12 @@ import {
   gradePlaygroundWithConfig,
   optimizePlaygroundConfig,
 } from '@/lib/gemini-service';
+import type { CriterionLevel } from '@/types';
 
 const SETS_STORAGE_KEY = 'prompt-playground-sets-v2';
 const ACTIVE_SET_KEY = 'prompt-playground-active-set-id-v2';
 const ORIGINAL_CONFIG_OPTION = '__original_config__';
+const DEBUG_PLAYGROUND_PROMPT = true;
 
 type PlaygroundView = 'dashboard' | 'builder' | 'optimizer';
 
@@ -75,18 +76,6 @@ const LENGTH_TAG_OPTIONS: Array<{ value: FeedbackStyleConfig['lengthPreset']; la
   { value: 'short', label: 'Short' },
   { value: 'medium', label: 'Medium' },
   { value: 'long', label: 'Long (detailed)' },
-];
-
-const TONE_TAG_OPTIONS: Array<{ value: FeedbackStyleConfig['tonePreset']; label: string }> = [
-  { value: 'direct', label: 'Strict' },
-  { value: 'balanced', label: 'Balanced' },
-  { value: 'supportive', label: 'Encouraging' },
-];
-
-const WORDING_TAG_OPTIONS: Array<{ value: FeedbackStyleConfig['englishLevelPreset']; label: string }> = [
-  { value: 'simple', label: 'Simple' },
-  { value: 'standard', label: 'Standard' },
-  { value: 'advanced', label: 'Advanced' },
 ];
 
 const OPTIMIZER_FEEDBACK_TAGS: Array<{
@@ -134,52 +123,95 @@ const OPTIMIZER_FEEDBACK_TAGS: Array<{
 
 const PREDEFINED_RUBRIC: RubricCriterion[] = [
   {
-    id: 'test-1',
+    id: 1,
     name: 'Ideas',
-    minScore: 0,
-    maxScore: 3,
-    levels: {
-      '3': 'Tells a story with ideas that are clearly focused on the topic and are thoroughly developed with specific, relevant details.',
-      '2': 'Tells a story with ideas that are somewhat focused on the topic and are developed with a mix of specific and/or general details.',
-      '1': 'Tells a story with ideas that are minimally focused on the topic and developed with limited and/or general details.',
-      '0': 'Ideas are not focused on the task and/or are undeveloped.',
-    },
+    scoreRange: { min: 0, max: 3 },
+    levels: [
+      { score: 3, description: 'Tells a story with ideas that are clearly focused on the topic and are thoroughly developed with specific, relevant details.' },
+      { score: 2, description: 'Tells a story with ideas that are somewhat focused on the topic and are developed with a mix of specific and/or general details.' },
+      { score: 1, description: 'Tells a story with ideas that are minimally focused on the topic and developed with limited and/or general details.' },
+      { score: 0, description: 'Ideas are not focused on the task and/or are undeveloped.' },
+    ],
   },
   {
-    id: 'test-2',
+    id: 2,
     name: 'Organization',
-    minScore: 0,
-    maxScore: 3,
-    levels: {
-      '3': 'Organization and connections between ideas and/or events are clear and logically sequenced.',
-      '2': 'Organization and connections between ideas and/or events are logically sequenced.',
-      '1': 'Organization and connections between ideas and/or events are weak.',
-      '0': 'No organization evident.',
-    },
+    scoreRange: { min: 0, max: 3 },
+    levels: [
+      { score: 3, description: 'Organization and connections between ideas and/or events are clear and logically sequenced.' },
+      { score: 2, description: 'Organization and connections between ideas and/or events are logically sequenced.' },
+      { score: 1, description: 'Organization and connections between ideas and/or events are weak.' },
+      { score: 0, description: 'No organization evident.' },
+    ],
   },
   {
-    id: 'test-3',
+    id: 3,
     name: 'Style',
-    minScore: 0,
-    maxScore: 3,
-    levels: {
-      '3': 'Command of language, including effective and compelling word choice and varied sentence structure, clearly supports the writer\'s purpose and audience.',
-      '2': 'Adequate command of language, including effective word choice and clear sentences, supports the writer\'s purpose and audience.',
-      '1': 'Limited use of language, including lack of variety in word choice and sentences, may hinder support for the writer\'s purpose and audience.',
-      '0': 'Ineffective use of language for the writer\'s purpose and audience.',
-    },
+    scoreRange: { min: 0, max: 3 },
+    levels: [
+      { score: 3, description: "Command of language, including effective and compelling word choice and varied sentence structure, clearly supports the writer's purpose and audience." },
+      { score: 2, description: "Adequate command of language, including effective word choice and clear sentences, supports the writer's purpose and audience." },
+      { score: 1, description: "Limited use of language, including lack of variety in word choice and sentences, may hinder support for the writer's purpose and audience." },
+      { score: 0, description: "Ineffective use of language for the writer's purpose and audience." },
+    ],
   },
   {
-    id: 'test-4',
+    id: 4,
     name: 'Conventions',
-    minScore: 0,
-    maxScore: 3,
-    levels: {
-      '3': 'Consistent, appropriate use of conventions of Standard English for grammar, usage, spelling, capitalization, and punctuation for the grade level.',
-      '2': 'Adequate use of conventions of Standard English for grammar, usage, spelling, capitalization, and punctuation for the grade level.',
-      '1': 'Limited use of conventions of Standard English for grammar, usage, spelling, capitalization, and punctuation for the grade level.',
-      '0': 'Ineffective use of conventions of Standard English for grammar, usage, spelling, capitalization, and punctuation.',
-    },
+    scoreRange: { min: 0, max: 3 },
+    levels: [
+      { score: 3, description: 'Consistent, appropriate use of conventions of Standard English for grammar, usage, spelling, capitalization, and punctuation for the grade level.' },
+      { score: 2, description: 'Adequate use of conventions of Standard English for grammar, usage, spelling, capitalization, and punctuation for the grade level.' },
+      { score: 1, description: 'Limited use of conventions of Standard English for grammar, usage, spelling, capitalization, and punctuation for the grade level.' },
+      { score: 0, description: 'Ineffective use of conventions of Standard English for grammar, usage, spelling, capitalization, and punctuation.' },
+    ],
+  },
+];
+
+const EXAMPLE_RUBRIC: RubricCriterion[] = [
+  {
+    id: 1, name: 'System Design',
+    scoreRange: { min: 1, max: 5 },
+    levels: [
+      { score: 5, description: 'Demonstrates a comprehensive and well-justified system design. All components are clearly defined, logically connected, and appropriate for the problem scope. Trade-offs are discussed thoughtfully.' },
+      { score: 4, description: 'Presents a solid system design with most components well-defined. Minor gaps in justification or connectivity between components.' },
+      { score: 3, description: 'Provides an adequate system design. Some components may be underdeveloped or lack clear justification. Connections between components are present but not fully articulated.' },
+      { score: 2, description: 'System design is incomplete or poorly justified. Key components are missing or not logically connected.' },
+      { score: 1, description: 'No meaningful system design is presented, or the design is fundamentally flawed.' },
+    ],
+  },
+  {
+    id: 2, name: 'Tools',
+    scoreRange: { min: 1, max: 5 },
+    levels: [
+      { score: 5, description: 'Selects and applies highly appropriate tools and technologies for the task. Justifies tool choices with clear reasoning and demonstrates deep understanding of their capabilities and limitations.' },
+      { score: 4, description: 'Uses appropriate tools with reasonable justification. Demonstrates good understanding of tool capabilities.' },
+      { score: 3, description: 'Tools are adequate but choices may not be fully justified. Some understanding of tool capabilities demonstrated.' },
+      { score: 2, description: 'Tool selection is questionable or poorly justified. Limited understanding of tool capabilities shown.' },
+      { score: 1, description: 'Tools are inappropriate for the task or no tools are discussed.' },
+    ],
+  },
+  {
+    id: 3, name: 'Process Reflection',
+    scoreRange: { min: 1, max: 5 },
+    levels: [
+      { score: 5, description: 'Provides deep and insightful reflection on the development process. Clearly identifies challenges, decisions, and lessons learned. Demonstrates critical thinking about what worked and what could be improved.' },
+      { score: 4, description: 'Offers meaningful reflection with identification of key challenges and decisions. Some critical analysis present.' },
+      { score: 3, description: 'Reflection is present but surface-level. Identifies some challenges but lacks depth in analysis.' },
+      { score: 2, description: 'Minimal reflection provided. Few challenges or decisions are discussed.' },
+      { score: 1, description: 'No meaningful reflection on the process is provided.' },
+    ],
+  },
+  {
+    id: 4, name: 'Expectations & Conclusion',
+    scoreRange: { min: 1, max: 5 },
+    levels: [
+      { score: 5, description: 'Sets clear expectations and provides a compelling conclusion. Effectively summarizes key findings, acknowledges limitations, and outlines future directions with specificity.' },
+      { score: 4, description: 'Expectations are clear and conclusion is well-structured. Most key points are summarized with some discussion of limitations and future work.' },
+      { score: 3, description: 'Expectations and conclusion are present but may lack clarity or completeness. Some summary of findings provided.' },
+      { score: 2, description: 'Expectations are vague and conclusion is weak. Limited summary of findings.' },
+      { score: 1, description: 'No clear expectations set and conclusion is missing or meaningless.' },
+    ],
   },
 ];
 
@@ -213,6 +245,7 @@ type EditableSet = {
   versions: PromptVersion[];
   currentVersionId: string | null;
   optimizationIterations: OptimizationIteration[];
+  runtime: SetRuntimeState;
 };
 
 interface TestResult {
@@ -227,6 +260,8 @@ type PlaygroundRunMode = 'parity';
 type RunMetadata = {
   mode: PlaygroundRunMode;
   importable: boolean;
+  prompts?: Array<{ criterionName: string; prompt: string }>;
+  outputs?: Array<{ criterionName: string; output: string }>;
 };
 
 type RunMetrics = {
@@ -249,6 +284,15 @@ type EssayItem = {
   text: string;
 };
 
+type SetRuntimeState = {
+  essays: EssayItem[];
+  runResultsByEssay: TestResult[][][];
+  runMetadata: RunMetadata | null;
+  runConfig: BuilderPromptConfig | null;
+  runCount: number;
+  resultsTab: 'graph' | 'results';
+};
+
 type GradeRunResult = {
   results: TestResult[];
   metadata: RunMetadata;
@@ -261,11 +305,10 @@ const makeDefaultConfig = (): BuilderPromptConfig => ({
   feedbackText: 'Be specific and constructive. Reference evidence from the text.',
   criteria: [
     {
-      id: crypto.randomUUID(),
+      id: 1,
       name: '',
-      minScore: 0,
-      maxScore: 3,
-      levels: { '3': '', '2': '', '1': '', '0': '' },
+      scoreRange: { min: 0, max: 3 },
+      levels: [{ score: 3, description: '' }, { score: 2, description: '' }, { score: 1, description: '' }, { score: 0, description: '' }],
     },
   ],
   showAdditionalMaterial: false,
@@ -274,6 +317,17 @@ const makeDefaultConfig = (): BuilderPromptConfig => ({
   additionalDescription: '',
   feedbackBehavior: { ...DEFAULT_FEEDBACK_BEHAVIOR },
   feedbackInstructionText: '',
+});
+
+const makeDefaultEssays = (): EssayItem[] => [{ id: crypto.randomUUID(), text: '' }];
+
+const makeDefaultSetRuntime = (): SetRuntimeState => ({
+  essays: makeDefaultEssays(),
+  runResultsByEssay: [],
+  runMetadata: null,
+  runConfig: null,
+  runCount: 1,
+  resultsTab: 'results',
 });
 
 const cloneConfig = (c: BuilderPromptConfig): BuilderPromptConfig => JSON.parse(JSON.stringify(c)) as BuilderPromptConfig;
@@ -289,13 +343,50 @@ const createVersion = (config: BuilderPromptConfig, index: number): PromptVersio
   config: cloneConfig(config),
 });
 
+function migrateCriteria(raw: unknown[]): RubricCriterion[] {
+  return raw.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { id: index + 1, name: '', scoreRange: { min: 0, max: 3 }, levels: [] };
+    }
+    const c = item as Record<string, unknown>;
+
+    let scoreRange: { min: number; max: number };
+    if (c.scoreRange && typeof c.scoreRange === 'object' && !Array.isArray(c.scoreRange)) {
+      const sr = c.scoreRange as { min?: unknown; max?: unknown };
+      scoreRange = { min: typeof sr.min === 'number' ? sr.min : 0, max: typeof sr.max === 'number' ? sr.max : 3 };
+    } else {
+      scoreRange = { min: typeof c.minScore === 'number' ? c.minScore : 0, max: typeof c.maxScore === 'number' ? c.maxScore : 3 };
+    }
+
+    let levels: CriterionLevel[];
+    if (Array.isArray(c.levels) && c.levels.every((l) => l && typeof l === 'object' && 'score' in l)) {
+      levels = (c.levels as Array<{ score: unknown; description: unknown }>).map((l) => ({
+        score: typeof l.score === 'number' ? l.score : Number(l.score),
+        description: typeof l.description === 'string' ? l.description : '',
+      }));
+    } else if (c.levels && typeof c.levels === 'object' && !Array.isArray(c.levels)) {
+      levels = Object.entries(c.levels as Record<string, string>)
+        .map(([key, description]) => ({ score: Number(key), description: String(description) }))
+        .filter((l) => Number.isFinite(l.score));
+    } else {
+      levels = [];
+      for (let score = scoreRange.max; score >= scoreRange.min; score -= 1) {
+        levels.push({ score, description: '' });
+      }
+    }
+
+    const id = typeof c.id === 'number' ? c.id : index + 1;
+    return { id, name: typeof c.name === 'string' ? c.name : '', scoreRange, levels };
+  });
+}
+
 function normalizeSet(raw: EditableSet): EditableSet {
   const fallback = makeDefaultConfig();
   const config: BuilderPromptConfig = {
     ...fallback,
     ...(raw.config || fallback),
     criteria: Array.isArray(raw.config?.criteria) && raw.config.criteria.length > 0
-      ? raw.config.criteria
+      ? migrateCriteria(raw.config.criteria)
       : fallback.criteria,
     feedbackBehavior: {
       ...DEFAULT_FEEDBACK_BEHAVIOR,
@@ -321,7 +412,7 @@ function normalizeSet(raw: EditableSet): EditableSet {
         ...(version.config || fallback),
         criteria:
           Array.isArray(version.config?.criteria) && version.config.criteria.length > 0
-            ? version.config.criteria
+            ? migrateCriteria(version.config.criteria)
             : fallback.criteria,
         feedbackBehavior: {
           ...DEFAULT_FEEDBACK_BEHAVIOR,
@@ -356,7 +447,7 @@ function normalizeSet(raw: EditableSet): EditableSet {
         ...(iteration.baselineConfig || fallback),
         criteria:
           Array.isArray(iteration.baselineConfig?.criteria) && iteration.baselineConfig.criteria.length > 0
-            ? iteration.baselineConfig.criteria
+            ? migrateCriteria(iteration.baselineConfig.criteria)
             : fallback.criteria,
         feedbackBehavior: {
           ...DEFAULT_FEEDBACK_BEHAVIOR,
@@ -372,7 +463,7 @@ function normalizeSet(raw: EditableSet): EditableSet {
         ...(iteration.revisedConfig || fallback),
         criteria:
           Array.isArray(iteration.revisedConfig?.criteria) && iteration.revisedConfig.criteria.length > 0
-            ? iteration.revisedConfig.criteria
+            ? migrateCriteria(iteration.revisedConfig.criteria)
             : fallback.criteria,
         feedbackBehavior: {
           ...DEFAULT_FEEDBACK_BEHAVIOR,
@@ -386,6 +477,87 @@ function normalizeSet(raw: EditableSet): EditableSet {
     }))
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+  const rawRuntime = (raw as Partial<EditableSet>).runtime;
+  const normalizedEssays =
+    rawRuntime && Array.isArray((rawRuntime as Partial<SetRuntimeState>).essays)
+      ? ((rawRuntime as Partial<SetRuntimeState>).essays as unknown[])
+          .filter((essay) => essay && typeof essay === 'object')
+          .map((essay, index) => {
+            const row = essay as Record<string, unknown>;
+            return {
+              id: typeof row.id === 'string' && row.id.trim() ? row.id : `essay-${index + 1}`,
+              text: typeof row.text === 'string' ? row.text : '',
+            };
+          })
+          .filter((essay) => typeof essay.id === 'string')
+      : [];
+
+  const runtime: SetRuntimeState = {
+    essays: normalizedEssays.length > 0 ? normalizedEssays : makeDefaultEssays(),
+    runResultsByEssay:
+      rawRuntime && Array.isArray((rawRuntime as Partial<SetRuntimeState>).runResultsByEssay)
+        ? ((rawRuntime as Partial<SetRuntimeState>).runResultsByEssay as unknown[]).map((essayRuns) =>
+            Array.isArray(essayRuns)
+              ? essayRuns.map((singleRun) => normalizeTestResults(singleRun))
+              : []
+          )
+        : [],
+    runMetadata:
+      rawRuntime && (rawRuntime as Partial<SetRuntimeState>).runMetadata && typeof (rawRuntime as Partial<SetRuntimeState>).runMetadata === 'object'
+        ? ({
+            mode: 'parity',
+            importable: Boolean(((rawRuntime as Partial<SetRuntimeState>).runMetadata as Partial<RunMetadata>)?.importable),
+            prompts: Array.isArray(((rawRuntime as Partial<SetRuntimeState>).runMetadata as Partial<RunMetadata>)?.prompts)
+              ? (((rawRuntime as Partial<SetRuntimeState>).runMetadata as Partial<RunMetadata>).prompts as Array<{ criterionName?: unknown; prompt?: unknown }>).filter(
+                  (row): row is { criterionName: string; prompt: string } =>
+                    typeof row.criterionName === 'string' && typeof row.prompt === 'string'
+                )
+              : undefined,
+            outputs: Array.isArray(((rawRuntime as Partial<SetRuntimeState>).runMetadata as Partial<RunMetadata>)?.outputs)
+              ? (((rawRuntime as Partial<SetRuntimeState>).runMetadata as Partial<RunMetadata>).outputs as Array<{ criterionName?: unknown; output?: unknown }>).filter(
+                  (row): row is { criterionName: string; output: string } =>
+                    typeof row.criterionName === 'string' && typeof row.output === 'string'
+                )
+              : undefined,
+          } as RunMetadata)
+        : null,
+    runConfig:
+      rawRuntime && (rawRuntime as Partial<SetRuntimeState>).runConfig && typeof (rawRuntime as Partial<SetRuntimeState>).runConfig === 'object'
+        ? ({
+            ...fallback,
+            ...((rawRuntime as Partial<SetRuntimeState>).runConfig as Partial<BuilderPromptConfig>),
+            criteria:
+              Array.isArray(((rawRuntime as Partial<SetRuntimeState>).runConfig as Partial<BuilderPromptConfig>)?.criteria) &&
+              (((rawRuntime as Partial<SetRuntimeState>).runConfig as Partial<BuilderPromptConfig>).criteria?.length || 0) > 0
+                ? migrateCriteria(((rawRuntime as Partial<SetRuntimeState>).runConfig as Partial<BuilderPromptConfig>).criteria as unknown[])
+                : fallback.criteria,
+            feedbackBehavior: {
+              ...DEFAULT_FEEDBACK_BEHAVIOR,
+              ...((((rawRuntime as Partial<SetRuntimeState>).runConfig as Partial<BuilderPromptConfig>)?.feedbackBehavior as
+                | Partial<FeedbackBehaviorConfig>
+                | undefined) || {}),
+            },
+            feedbackInstructionText:
+              typeof ((rawRuntime as Partial<SetRuntimeState>).runConfig as Partial<BuilderPromptConfig>)?.feedbackInstructionText === 'string'
+                ? (((rawRuntime as Partial<SetRuntimeState>).runConfig as Partial<BuilderPromptConfig>).feedbackInstructionText as string)
+                : '',
+          } as BuilderPromptConfig)
+        : null,
+    runCount:
+      rawRuntime && typeof (rawRuntime as Partial<SetRuntimeState>).runCount === 'number'
+        ? Math.min(3, Math.max(1, Math.floor((rawRuntime as Partial<SetRuntimeState>).runCount as number)))
+        : 1,
+    resultsTab:
+      rawRuntime && (rawRuntime as Partial<SetRuntimeState>).resultsTab === 'graph'
+        ? 'graph'
+        : 'results',
+  };
+
+  // Migrate legacy runtime entries: preserve the set's saved config as a frozen run snapshot.
+  if (!runtime.runConfig && runtime.runResultsByEssay.some((essayRuns) => essayRuns.length > 0)) {
+    runtime.runConfig = cloneConfig(config);
+  }
+
   return {
     id: raw.id || crypto.randomUUID(),
     name: raw.name || 'Untitled Prompt',
@@ -395,6 +567,7 @@ function normalizeSet(raw: EditableSet): EditableSet {
     versions,
     currentVersionId,
     optimizationIterations,
+    runtime,
   };
 }
 function RubricTable({
@@ -408,32 +581,32 @@ function RubricTable({
     onChange([
       ...criteria,
       {
-        id: crypto.randomUUID(),
+        id: criteria.length > 0 ? Math.max(...criteria.map((c) => c.id)) + 1 : 1,
         name: '',
-        minScore: 0,
-        maxScore: 3,
-        levels: { '3': '', '2': '', '1': '', '0': '' },
+        scoreRange: { min: 0, max: 3 },
+        levels: [{ score: 3, description: '' }, { score: 2, description: '' }, { score: 1, description: '' }, { score: 0, description: '' }],
       },
     ]);
   };
 
-  const removeCriterion = (id: string) => {
+  const removeCriterion = (id: number) => {
     onChange(criteria.filter((c) => c.id !== id));
   };
 
-  const updateCriterion = (id: string, key: keyof RubricCriterion, value: string | number) => {
+  const updateCriterion = (id: number, patch: Partial<RubricCriterion>) => {
     onChange(
       criteria.map((c) => {
         if (c.id !== id) return c;
-
-        const next = { ...c, [key]: value };
-
-        if (key === 'minScore' || key === 'maxScore') {
-          const levels: Record<string, string> = {};
-          for (let score = next.maxScore; score >= next.minScore; score -= 1) {
-            levels[String(score)] = next.levels[String(score)] || '';
+        const next = { ...c, ...patch };
+        if ('scoreRange' in patch) {
+          const { min, max } = next.scoreRange;
+          const existingLevels = next.levels;
+          const newLevels: CriterionLevel[] = [];
+          for (let score = max; score >= min; score -= 1) {
+            const existing = existingLevels.find((l) => l.score === score);
+            newLevels.push({ score, description: existing?.description ?? '' });
           }
-          next.levels = levels;
+          next.levels = newLevels;
         }
 
         return next;
@@ -441,8 +614,8 @@ function RubricTable({
     );
   };
 
-  const updateLevel = (id: string, score: string, value: string) => {
-    onChange(criteria.map((c) => (c.id === id ? { ...c, levels: { ...c.levels, [score]: value } } : c)));
+  const updateLevel = (id: number, score: number, value: string) => {
+    onChange(criteria.map((c) => (c.id === id ? { ...c, levels: c.levels.map((l) => l.score === score ? { ...l, description: value } : l) } : c)));
   };
 
   return (
@@ -452,23 +625,23 @@ function RubricTable({
           <div className="mb-3 flex items-center gap-2">
             <input
               value={criterion.name}
-              onChange={(e) => updateCriterion(criterion.id, 'name', e.target.value)}
+              onChange={(e) => updateCriterion(criterion.id, { name: e.target.value })}
               placeholder="Criterion name"
               className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
             <input
               type="number"
               min={0}
-              value={criterion.minScore}
-              onChange={(e) => updateCriterion(criterion.id, 'minScore', Number(e.target.value))}
+              value={criterion.scoreRange.min}
+              onChange={(e) => updateCriterion(criterion.id, { scoreRange: { ...criterion.scoreRange, min: Number(e.target.value) } })}
               className="w-14 rounded-lg border border-slate-200 px-2 py-2 text-center text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
               title="Min score"
             />
             <input
               type="number"
               min={1}
-              value={criterion.maxScore}
-              onChange={(e) => updateCriterion(criterion.id, 'maxScore', Number(e.target.value))}
+              value={criterion.scoreRange.max}
+              onChange={(e) => updateCriterion(criterion.id, { scoreRange: { ...criterion.scoreRange, max: Number(e.target.value) } })}
               className="w-14 rounded-lg border border-slate-200 px-2 py-2 text-center text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
               title="Max score"
             />
@@ -490,19 +663,19 @@ function RubricTable({
                 </tr>
               </thead>
               <tbody>
-                {Object.keys(criterion.levels)
-                  .sort((a, b) => Number(b) - Number(a))
-                  .map((score) => (
-                    <tr key={score} className="border-t border-slate-200">
+                {[...criterion.levels]
+                  .sort((a, b) => b.score - a.score)
+                  .map((level) => (
+                    <tr key={level.score} className="border-t border-slate-200">
                       <td className="border-r border-slate-200 py-2 text-center font-semibold text-slate-700">
-                        {score}
+                        {level.score}
                       </td>
                       <td className="p-2">
                         <textarea
                           rows={2}
-                          value={criterion.levels[score] || ''}
-                          onChange={(e) => updateLevel(criterion.id, score, e.target.value)}
-                          placeholder={`Description for score ${score}`}
+                          value={level.description}
+                          onChange={(e) => updateLevel(criterion.id, level.score, e.target.value)}
+                          placeholder={`Description for score ${level.score}`}
                           className="w-full rounded-md border border-transparent px-2 py-1 text-xs text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300"
                         />
                       </td>
@@ -537,8 +710,8 @@ function CriterionResultCard({
   const [open, setOpen] = useState(true);
   const matched = criteria.find((c) => c.name === result.criterionName);
   const progress =
-    matched && matched.maxScore > matched.minScore
-      ? ((result.score - matched.minScore) / (matched.maxScore - matched.minScore)) * 100
+    matched && matched.scoreRange.max > matched.scoreRange.min
+      ? ((result.score - matched.scoreRange.min) / (matched.scoreRange.max - matched.scoreRange.min)) * 100
       : 0;
 
   return (
@@ -550,7 +723,7 @@ function CriterionResultCard({
         <div className="flex items-center gap-2">
           <p className="text-sm font-semibold text-slate-800">{result.criterionName}</p>
           <p className="text-xs text-slate-500">
-            {result.score}/{matched?.maxScore ?? '?'}
+            {result.score}/{matched?.scoreRange.max ?? '?'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -659,7 +832,7 @@ function DiffTextPreview({
     if (!plain.trim()) {
       return <p className="text-xs text-slate-400">No text.</p>;
     }
-    return <p className="whitespace-pre-wrap text-xs leading-6 text-slate-700">{plain}</p>;
+    return <p className="whitespace-pre-wrap text-xs leading-4 text-slate-700">{plain}</p>;
   }
 
   const ops = useMemo(() => buildWordDiffOps(oldText || '', newText || ''), [oldText, newText]);
@@ -669,7 +842,7 @@ function DiffTextPreview({
   }
 
   return (
-    <p className="whitespace-pre-wrap text-xs leading-6 text-slate-700">
+    <p className="whitespace-pre-wrap text-xs leading-4 text-slate-700">
       {ops.map((op, idx) => {
         if (op.type === 'equal') return <span key={`${mode}-op-${idx}`}>{op.text}</span>;
         if (op.type === 'remove') {
@@ -692,6 +865,8 @@ function IterationConfigReviewEditor({
   onChange,
   isRubricEditing,
   onToggleRubricEdit,
+  isFeedbackEditing,
+  onToggleFeedbackEdit,
 }: {
   baselineConfig: BuilderPromptConfig;
   revisedConfig: BuilderPromptConfig;
@@ -699,32 +874,63 @@ function IterationConfigReviewEditor({
   onChange: (next: BuilderPromptConfig) => void;
   isRubricEditing: boolean;
   onToggleRubricEdit: () => void;
+  isFeedbackEditing: boolean;
+  onToggleFeedbackEdit: () => void;
 }) {
   const baselineInstruction = getEffectiveFeedbackInstructionText(baselineConfig);
   const revisedInstruction = getEffectiveFeedbackInstructionText(revisedConfig);
+  const baselineBehavior = getFeedbackBehavior(baselineConfig);
+  const revisedBehavior = getFeedbackBehavior(revisedConfig);
 
   const rubricChanged = JSON.stringify(baselineConfig.criteria) !== JSON.stringify(revisedConfig.criteria);
-  const feedbackChanged = baselineInstruction !== revisedInstruction;
+  const feedbackBehaviorChanged = JSON.stringify(baselineBehavior) !== JSON.stringify(revisedBehavior);
+  const feedbackChanged = feedbackBehaviorChanged || baselineInstruction !== revisedInstruction;
 
-  const updateCriterion = (criterionId: string, patch: Partial<RubricCriterion>) => {
-    const nextCriteria = revisedConfig.criteria.map((criterion) =>
-      criterion.id === criterionId ? { ...criterion, ...patch } : criterion
-    );
+  const updateCriterion = (criterionId: number, patch: Partial<RubricCriterion>) => {
+    const nextCriteria = revisedConfig.criteria.map((criterion) => {
+      if (criterion.id !== criterionId) return criterion;
+      const next = { ...criterion, ...patch };
+      if ('scoreRange' in patch) {
+        const { min, max } = next.scoreRange;
+        const existingLevels = next.levels;
+        const newLevels: CriterionLevel[] = [];
+        for (let score = max; score >= min; score -= 1) {
+          const existing = existingLevels.find((l) => l.score === score);
+          newLevels.push({ score, description: existing?.description ?? '' });
+        }
+        next.levels = newLevels;
+      }
+      return next;
+    });
     onChange({ ...revisedConfig, criteria: nextCriteria });
   };
 
-  const updateLevel = (criterionId: string, score: string, text: string) => {
+  const updateLevel = (criterionId: number, score: number, text: string) => {
     const nextCriteria = revisedConfig.criteria.map((criterion) => {
       if (criterion.id !== criterionId) return criterion;
       return {
         ...criterion,
-        levels: {
-          ...criterion.levels,
-          [score]: text,
-        },
+        levels: criterion.levels.map((l) => l.score === score ? { ...l, description: text } : l),
       };
     });
     onChange({ ...revisedConfig, criteria: nextCriteria });
+  };
+
+  const updateFeedbackBehavior = (patch: Partial<FeedbackBehaviorConfig>) => {
+    onChange({
+      ...revisedConfig,
+      feedbackBehavior: {
+        ...revisedBehavior,
+        ...patch,
+      },
+    });
+  };
+
+  const updateFeedbackInstructionText = (text: string) => {
+    onChange({
+      ...revisedConfig,
+      feedbackInstructionText: text,
+    });
   };
 
   const criterionPairs = Array.from({ length: Math.max(baselineConfig.criteria.length, revisedConfig.criteria.length) }, (_, index) => {
@@ -746,18 +952,12 @@ function IterationConfigReviewEditor({
     editable: boolean,
     baselineCriterion?: RubricCriterion
   ) => {
-    const scoreKeys = Object.keys(criterion.levels).sort((a, b) => Number(b) - Number(a));
+    const sortedLevels = [...criterion.levels].sort((a, b) => b.score - a.score);
     const hasBaseline = Boolean(baselineCriterion);
-    const criterionChanged = baselineCriterion
-      ? baselineCriterion.name !== criterion.name ||
-        baselineCriterion.minScore !== criterion.minScore ||
-        baselineCriterion.maxScore !== criterion.maxScore
-      : false;
-
     return (
       <div
         key={`${keyPrefix}-${criterion.id}`}
-        className={`h-full py-1 ${!editable && criterionChanged ? 'bg-emerald-50/50' : ''}`}
+        className="h-full py-1"
       >
         <div className="mb-2 flex items-center justify-between gap-2">
           {editable ? (
@@ -775,22 +975,22 @@ function IterationConfigReviewEditor({
               <input
                 type="number"
                 min={0}
-                value={criterion.minScore}
-                onChange={(e) => updateCriterion(criterion.id, { minScore: Number(e.target.value) })}
+                value={criterion.scoreRange.min}
+                onChange={(e) => updateCriterion(criterion.id, { scoreRange: { ...criterion.scoreRange, min: Number(e.target.value) } })}
                 className="w-10 rounded-md border border-slate-200 px-1.5 py-0.5 text-center text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
               />
               <span className="text-xs text-slate-500">-</span>
               <input
                 type="number"
                 min={1}
-                value={criterion.maxScore}
-                onChange={(e) => updateCriterion(criterion.id, { maxScore: Number(e.target.value) })}
+                value={criterion.scoreRange.max}
+                onChange={(e) => updateCriterion(criterion.id, { scoreRange: { ...criterion.scoreRange, max: Number(e.target.value) } })}
                 className="w-10 rounded-md border border-slate-200 px-1.5 py-0.5 text-center text-xs focus:outline-none focus:ring-1 focus:ring-indigo-300"
               />
             </div>
           ) : (
             <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-              {criterion.minScore}-{criterion.maxScore}
+              {criterion.scoreRange.min}-{criterion.scoreRange.max}
             </span>
           )}
         </div>
@@ -804,27 +1004,25 @@ function IterationConfigReviewEditor({
               </tr>
             </thead>
             <tbody>
-              {scoreKeys.map((scoreKey) => {
-                const levelText = criterion.levels[scoreKey] || '';
-                const oldLevelText = baselineCriterion?.levels?.[scoreKey] || '';
-                const levelChanged = !editable && hasBaseline && oldLevelText !== levelText;
-
+              {sortedLevels.map((level) => {
+                const levelText = level.description;
+                const oldLevelText = baselineCriterion?.levels?.find((l) => l.score === level.score)?.description ?? '';
                 return (
-                  <tr key={`${keyPrefix}-${criterion.id}-${scoreKey}`} className="border-t border-slate-200 align-top">
-                    <td className="border-r border-slate-200 px-2 py-2 font-semibold text-slate-700">{scoreKey}</td>
-                    <td className={`px-3 py-2 ${levelChanged ? 'bg-emerald-50/70' : ''}`}>
+                  <tr key={`${keyPrefix}-${criterion.id}-${level.score}`} className="border-t border-slate-200 align-top">
+                    <td className="border-r border-slate-200 px-2 py-2 font-semibold text-slate-700">{level.score}</td>
+                    <td className="px-3 py-2">
                       {editable ? (
                         <textarea
                           rows={2}
                           value={levelText}
-                          onChange={(e) => updateLevel(criterion.id, scoreKey, e.target.value)}
+                          onChange={(e) => updateLevel(criterion.id, level.score, e.target.value)}
                           className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-300"
                         />
                       ) : (
                         hasBaseline ? (
                           <DiffTextPreview oldText={oldLevelText} newText={levelText} mode="new" />
                         ) : (
-                          <p className="text-xs text-slate-700">{levelText || 'Not set'}</p>
+                          <p className="whitespace-pre-wrap text-xs leading-4 text-slate-700">{levelText || 'Not set'}</p>
                         )
                       )}
                     </td>
@@ -858,13 +1056,13 @@ function IterationConfigReviewEditor({
           <div className="flex items-center rounded-lg bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
             <span className="inline-flex items-center gap-1.5 text-slate-900">
               <FileText className="h-4 w-4 text-slate-800" />
-              Rubric Builder
+              Rubric
             </span>
           </div>
           <div className="flex items-center justify-between gap-2 rounded-lg bg-[var(--card-border)] px-4 py-3 text-sm font-bold text-slate-800">
             <span className="inline-flex items-center gap-1.5 text-slate-900">
               <FileText className="h-4 w-4 text-slate-800" />
-              Rubric Builder
+              Rubric
             </span>
             <button
               type="button"
@@ -886,7 +1084,7 @@ function IterationConfigReviewEditor({
               <div className="min-w-0">
                 {baselineCriterion ? renderRubricCriterion(baselineCriterion, `base-${key}`, false) : null}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 lg:pl-4">
                 {revisedCriterion
                   ? renderRubricCriterion(revisedCriterion, `rev-${key}`, isRubricEditing, baselineCriterion)
                   : null}
@@ -914,26 +1112,102 @@ function IterationConfigReviewEditor({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                onToggleRubricEdit();
+                onToggleFeedbackEdit();
               }}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium ${isRubricEditing ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium ${isFeedbackEditing ? 'border-emerald-300 bg-emerald-100 text-emerald-800' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}`}
             >
               <Pencil className="h-3.5 w-3.5" />
-              {isRubricEditing ? 'Done Editing' : 'Edit'}
+              {isFeedbackEditing ? 'Done Editing' : 'Edit'}
             </button>
           </div>
         </summary>
         <div className="grid gap-3 border-t border-slate-200 px-4 pb-4 pt-3 lg:grid-cols-2">
-          <div className="rounded-md border border-amber-100 bg-white p-2">
+          <div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Format</p>
+            <div className="mb-2 flex flex-wrap gap-2">
+              {[
+                { value: 'paragraph' as const, label: 'Flow Text' },
+                { value: 'bullets' as const, label: 'Bullet Points' },
+              ].map((option) => (
+                <span
+                  key={`baseline-format-${option.value}`}
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs ${baselineBehavior.format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                >
+                  {option.label}
+                </span>
+              ))}
+            </div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Length</p>
+            <div className="mb-2 flex flex-wrap gap-2">
+              {LENGTH_TAG_OPTIONS.map((option) => (
+                <span
+                  key={`baseline-length-${option.value}`}
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs ${baselineBehavior.lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                >
+                  {option.label}
+                </span>
+              ))}
+            </div>
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
             <DiffTextPreview oldText={baselineInstruction} newText={revisedInstruction} mode="old" />
           </div>
-          <div className="rounded-md border border-emerald-200 bg-white p-2">
-            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              {isRubricEditing ? 'Feedback Instructions' : 'Inline Diff Preview'}
-            </p>
-            {isRubricEditing ? (
-              <p className="whitespace-pre-wrap text-xs leading-6 text-slate-700">{revisedInstruction || 'No text.'}</p>
+          <div className="lg:pl-4">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Format</p>
+            <div className="mb-2 flex flex-wrap gap-2">
+              {[
+                { value: 'paragraph' as const, label: 'Flow Text' },
+                { value: 'bullets' as const, label: 'Bullet Points' },
+              ].map((option) => (
+                isFeedbackEditing ? (
+                  <button
+                    key={`iteration-format-${option.value}`}
+                    type="button"
+                    onClick={() => updateFeedbackBehavior({ format: option.value })}
+                    className={`rounded-full border px-3 py-1 text-xs ${revisedBehavior.format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                  >
+                    {option.label}
+                  </button>
+                ) : (
+                  <span
+                    key={`iteration-format-${option.value}`}
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs ${revisedBehavior.format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                  >
+                    {option.label}
+                  </span>
+                )
+              ))}
+            </div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Length</p>
+            <div className="mb-2 flex flex-wrap gap-2">
+              {LENGTH_TAG_OPTIONS.map((option) => (
+                isFeedbackEditing ? (
+                  <button
+                    key={`iteration-length-${option.value}`}
+                    type="button"
+                    onClick={() => updateFeedbackBehavior({ lengthPreset: option.value })}
+                    className={`rounded-full border px-3 py-1 text-xs ${revisedBehavior.lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                  >
+                    {option.label}
+                  </button>
+                ) : (
+                  <span
+                    key={`iteration-length-${option.value}`}
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs ${revisedBehavior.lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                  >
+                    {option.label}
+                  </span>
+                )
+              ))}
+            </div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
+            {isFeedbackEditing ? (
+              <textarea
+                rows={5}
+                value={revisedConfig.feedbackInstructionText || ''}
+                onChange={(e) => updateFeedbackInstructionText(e.target.value)}
+                placeholder="Add extra guidance for how feedback should be written..."
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+              />
             ) : (
               <DiffTextPreview oldText={baselineInstruction} newText={revisedInstruction} mode="new" />
             )}
@@ -959,8 +1233,8 @@ function ScoreConsistencyChart({
   const cw = W - ml - mr;
   const ch = H - mt - mb;
 
-  const yMin = criteria.length > 0 ? Math.min(...criteria.map((c) => c.minScore)) : 0;
-  const yMax = Math.max(...criteria.map((c) => c.maxScore), yMin + 1);
+  const yMin = criteria.length > 0 ? Math.min(...criteria.map((c) => c.scoreRange.min)) : 0;
+  const yMax = Math.max(...criteria.map((c) => c.scoreRange.max), yMin + 1);
   const yRange = Math.max(yMax - yMin, 1);
   const tickStep = yRange <= 5 ? 1 : yRange <= 10 ? 2 : yRange <= 25 ? 5 : yRange <= 50 ? 10 : 20;
   const ticks: number[] = [];
@@ -974,7 +1248,7 @@ function ScoreConsistencyChart({
   const groupPad = (groupWidth - numRuns * barWidth) / 2;
   const yScale = (v: number) => ch - ((v - yMin) / yRange) * ch;
 
-  const maxTotal = criteria.reduce((sum, c) => sum + c.maxScore, 0);
+  const maxTotal = criteria.reduce((sum, c) => sum + c.scoreRange.max, 0);
   const runTotals = essayRuns.map((run) => run.reduce((s, r) => s + r.score, 0));
   const avg = runTotals.length ? Math.round(runTotals.reduce((a, b) => a + b, 0) / runTotals.length) : 0;
   const spread = runTotals.length ? Math.max(...runTotals) - Math.min(...runTotals) : 0;
@@ -1080,6 +1354,7 @@ function CompareResultColumn({
   maxTotal,
   rows,
   criteria,
+  feedbackFormat,
   accent,
 }: {
   title: string;
@@ -1087,6 +1362,7 @@ function CompareResultColumn({
   maxTotal: number;
   rows: TestResult[];
   criteria: RubricCriterion[];
+  feedbackFormat: 'paragraph' | 'bullets';
   accent: 'slate' | 'indigo';
 }) {
   const titleClass = accent === 'indigo' ? 'text-indigo-700' : 'text-slate-600';
@@ -1110,7 +1386,7 @@ function CompareResultColumn({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const maxForCriterion = criteria.find((c) => c.name === row.criterionName)?.maxScore ?? 0;
+              const maxForCriterion = criteria.find((c) => c.name === row.criterionName)?.scoreRange.max ?? 0;
               return (
                 <tr key={`${title}-${row.criterionName}`} className="border-t border-slate-200 align-top">
                   <td className="px-3 py-2 font-semibold text-slate-700">{row.criterionName}</td>
@@ -1120,7 +1396,23 @@ function CompareResultColumn({
                     </span>
                   </td>
                   <td className="px-2 py-2 text-slate-600">
-                    <p className="text-sm">{row.justification?.[0] || 'No feedback generated.'}</p>
+                    {row.justification?.length > 0 ? (
+                      feedbackFormat === 'bullets' ? (
+                        <ul className="list-disc space-y-1 pl-4 text-sm">
+                          {row.justification.map((part, idx) => (
+                            <li key={`${title}-${row.criterionName}-j-${idx}`}>{part}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="space-y-1 text-sm">
+                          {row.justification.map((part, idx) => (
+                            <p key={`${title}-${row.criterionName}-j-${idx}`}>{part}</p>
+                          ))}
+                        </div>
+                      )
+                    ) : (
+                      <p className="text-sm">No feedback generated.</p>
+                    )}
                     {row.evidenceQuotes?.length > 0 && (
                       <details className="mt-2">
                         <summary className="cursor-pointer text-xs font-medium text-indigo-500">
@@ -1195,7 +1487,7 @@ function buildCriterionMetrics(runOutputs: TestResult[][]): CriterionMetric[] {
 }
 
 function getMaxTotal(criteria: RubricCriterion[]): number {
-  return criteria.reduce((sum, c) => sum + c.maxScore, 0);
+  return criteria.reduce((sum, c) => sum + c.scoreRange.max, 0);
 }
 
 function validateEditableBuilderConfig(config: BuilderPromptConfig): { valid: boolean; errors: string[] } {
@@ -1210,13 +1502,13 @@ function validateEditableBuilderConfig(config: BuilderPromptConfig): { valid: bo
     if (!String(criterion.name ?? '').trim()) {
       errors.push(`Criterion ${index + 1}: Name is required`);
     }
-    if ((criterion.maxScore ?? 0) <= 0) {
+    if ((criterion.scoreRange.max ?? 0) <= 0) {
       errors.push(`Criterion ${index + 1}: Max score must be > 0`);
     }
-    if ((criterion.minScore ?? 0) < 0) {
+    if ((criterion.scoreRange.min ?? 0) < 0) {
       errors.push(`Criterion ${index + 1}: Min score cannot be negative`);
     }
-    if ((criterion.minScore ?? 0) >= (criterion.maxScore ?? 0)) {
+    if ((criterion.scoreRange.min ?? 0) >= (criterion.scoreRange.max ?? 0)) {
       errors.push(`Criterion ${index + 1}: Min score must be less than max score`);
     }
   });
@@ -1231,24 +1523,8 @@ function getFeedbackBehavior(config: BuilderPromptConfig): FeedbackBehaviorConfi
   };
 }
 
-function getDefaultFeedbackInstructionText(config: BuilderPromptConfig): string {
-  const behavior = getFeedbackBehavior(config);
-  const formatInstruction =
-    behavior.format === 'bullets'
-      ? 'Write feedback as bullet points.'
-      : 'Write feedback as flow text.';
-
-  return [
-    formatInstruction,
-    getDefaultLengthInstruction(behavior.lengthPreset),
-    getDefaultToneInstruction(behavior.tonePreset),
-    getDefaultEnglishInstruction(behavior.englishLevelPreset),
-  ].join('\n');
-}
-
 function getEffectiveFeedbackInstructionText(config: BuilderPromptConfig): string {
-  const custom = typeof config.feedbackInstructionText === 'string' ? config.feedbackInstructionText.trim() : '';
-  return custom || getDefaultFeedbackInstructionText(config);
+  return typeof config.feedbackInstructionText === 'string' ? config.feedbackInstructionText.trim() : '';
 }
 
 function buildPromptSlotsFromConfig(config: BuilderPromptConfig): EditablePromptSlots {
@@ -1258,7 +1534,7 @@ function buildPromptSlotsFromConfig(config: BuilderPromptConfig): EditablePrompt
     lengthInstruction: getDefaultLengthInstruction(behavior.lengthPreset),
     toneInstruction: getDefaultToneInstruction(behavior.tonePreset),
     englishLevelInstruction: getDefaultEnglishInstruction(behavior.englishLevelPreset),
-    justificationStructureInstruction: feedbackInstructionText,
+    justificationStructureInstruction: feedbackInstructionText || undefined,
   };
 }
 
@@ -1274,6 +1550,11 @@ function buildStyleOverridesFromConfig(config: BuilderPromptConfig): Partial<Fee
 function getAssessmentTypeFromConfig(config: BuilderPromptConfig): 'flow' | 'bullets' {
   const behavior = getFeedbackBehavior(config);
   return behavior.format === 'bullets' ? 'bullets' : 'flow';
+}
+
+function getAssessmentLengthFromConfig(config: BuilderPromptConfig): 'short' | 'medium' | 'long' {
+  const behavior = getFeedbackBehavior(config);
+  return behavior.lengthPreset;
 }
 
 function normalizeTestResults(value: unknown): TestResult[] {
@@ -1313,7 +1594,9 @@ function draftOptimizedConfig(base: BuilderPromptConfig, request: string): Build
   if (!note) return next;
 
   const line = `Optimization objective: ${note}`;
-  next.feedbackText = next.feedbackText?.trim() ? `${next.feedbackText.trim()}\n\n${line}` : line;
+  next.feedbackInstructionText = next.feedbackInstructionText?.trim()
+    ? `${next.feedbackInstructionText.trim()}\n\n${line}`
+    : line;
   return next;
 }
 
@@ -1331,11 +1614,12 @@ export default function PromptPlayground() {
   const [savedPulse, setSavedPulse] = useState(false);
   const [selectedVersionId, setSelectedVersionId] = useState<string>('');
 
-  const [essays, setEssays] = useState<EssayItem[]>([{ id: crypto.randomUUID(), text: '' }]);
+  const [essays, setEssays] = useState<EssayItem[]>(makeDefaultEssays);
   const [gradingLoading, setGradingLoading] = useState(false);
   const [gradingError, setGradingError] = useState<string | null>(null);
   const [runResultsByEssay, setRunResultsByEssay] = useState<TestResult[][][]>([]);
   const [runMetadata, setRunMetadata] = useState<RunMetadata | null>(null);
+  const [runConfig, setRunConfig] = useState<BuilderPromptConfig | null>(null);
   const [resultsTab, setResultsTab] = useState<'graph' | 'results'>('results');
   const [runCount, setRunCount] = useState(1);
   const [runMenuOpen, setRunMenuOpen] = useState(false);
@@ -1356,15 +1640,24 @@ export default function PromptPlayground() {
   const [lastAttemptedIterationId, setLastAttemptedIterationId] = useState<string | null>(null);
   const [iterationLastRunEssay, setIterationLastRunEssay] = useState<Record<string, string>>({});
   const [iterationEditModeById, setIterationEditModeById] = useState<Record<string, boolean>>({});
-  const feedbackComposerRef = useRef<HTMLDivElement>(null);
+  const [iterationFeedbackEditModeById, setIterationFeedbackEditModeById] = useState<Record<string, boolean>>({});
   const newestIterationRef = useRef<HTMLDivElement | null>(null);
-  const [composerAnchorIterationId, setComposerAnchorIterationId] = useState<string | null>(null);
   const [optimizerSessionIterationIds, setOptimizerSessionIterationIds] = useState<string[]>([]);
 
   const activeSet = useMemo(
     () => promptSets.find((row) => row.id === activeSetId) ?? null,
     [promptSets, activeSetId]
   );
+
+  const applyRuntimeState = useCallback((runtime: SetRuntimeState) => {
+    setEssays(runtime.essays.length > 0 ? runtime.essays : makeDefaultEssays());
+    setRunResultsByEssay(runtime.runResultsByEssay || []);
+    setRunMetadata(runtime.runMetadata || null);
+    setRunConfig(runtime.runConfig || null);
+    setRunCount(Math.min(3, Math.max(1, runtime.runCount || 1)));
+    setResultsTab(runtime.resultsTab === 'graph' ? 'graph' : 'results');
+    setGradingError(null);
+  }, []);
 
   const activeVersions = activeSet?.versions || [];
   const activeIterations = activeSet?.optimizationIterations || [];
@@ -1418,12 +1711,42 @@ export default function PromptPlayground() {
           setConfig(cloneConfig(chosen.config));
           setRenameValue(chosen.name);
           setSelectedVersionId(chosen.currentVersionId || chosen.versions[0]?.id || '');
+          applyRuntimeState(chosen.runtime || makeDefaultSetRuntime());
         }
       }
     } catch {
       setPromptSets([]);
     }
-  }, []);
+  }, [applyRuntimeState]);
+
+  useEffect(() => {
+    if (!activeSetId || !activeSet) return;
+
+    const nextRuntime: SetRuntimeState = {
+      essays: essays.length > 0 ? essays : makeDefaultEssays(),
+      runResultsByEssay,
+      runMetadata,
+      runConfig,
+      runCount,
+      resultsTab,
+    };
+
+    const currentSerialized = JSON.stringify(activeSet.runtime);
+    const nextSerialized = JSON.stringify(nextRuntime);
+    if (currentSerialized === nextSerialized) return;
+
+    const nextSets = promptSets.map((row) =>
+      row.id === activeSetId
+        ? {
+            ...row,
+            runtime: nextRuntime,
+          }
+        : row
+    );
+
+    setPromptSets(nextSets);
+    localStorage.setItem(SETS_STORAGE_KEY, JSON.stringify(nextSets));
+  }, [activeSet, activeSetId, essays, promptSets, resultsTab, runConfig, runCount, runMetadata, runResultsByEssay]);
 
   useEffect(() => {
     if (sessionIterations.length === 0) {
@@ -1497,6 +1820,7 @@ export default function PromptPlayground() {
       versions: [],
       currentVersionId: null,
       optimizationIterations: [],
+      runtime: makeDefaultSetRuntime(),
     };
 
     const next = [item, ...promptSets];
@@ -1504,9 +1828,7 @@ export default function PromptPlayground() {
     setConfig(cloneConfig(item.config));
     setRenameValue(item.name);
     setSelectedVersionId('');
-    setEssays([{ id: crypto.randomUUID(), text: '' }]);
-    setRunResultsByEssay([]);
-    setGradingError(null);
+    applyRuntimeState(item.runtime);
     setView('builder');
     setIsRenamingTitle(false);
     setOptimizedConfig(null);
@@ -1524,9 +1846,7 @@ export default function PromptPlayground() {
     setSelectedIterationId(found.optimizationIterations[0]?.id || '');
     setIsRenamingTitle(false);
     setOptimizedConfig(null);
-    setEssays([{ id: crypto.randomUUID(), text: '' }]);
-    setRunResultsByEssay([]);
-    setGradingError(null);
+    applyRuntimeState(found.runtime || makeDefaultSetRuntime());
     setView(targetView);
   };
 
@@ -1542,12 +1862,14 @@ export default function PromptPlayground() {
         setRenameValue(selected.name);
         setSelectedVersionId(selected.currentVersionId || selected.versions[0]?.id || '');
         setSelectedIterationId(selected.optimizationIterations[0]?.id || '');
+        applyRuntimeState(selected.runtime || makeDefaultSetRuntime());
       }
     } else {
       setConfig(makeDefaultConfig());
       setRenameValue('');
       setSelectedVersionId('');
       setSelectedIterationId('');
+      applyRuntimeState(makeDefaultSetRuntime());
       setView('dashboard');
     }
   };
@@ -1568,8 +1890,8 @@ export default function PromptPlayground() {
     const parityCriteria = targetConfig.criteria.map((criterion) => ({
       name: criterion.name,
       scoreRange: {
-        min: criterion.minScore,
-        max: criterion.maxScore,
+        min: criterion.scoreRange.min,
+        max: criterion.scoreRange.max,
       },
     }));
 
@@ -1579,13 +1901,49 @@ export default function PromptPlayground() {
       promptSlots: buildPromptSlotsFromConfig(targetConfig),
       styleOverrides: buildStyleOverridesFromConfig(targetConfig),
       assessmentType: getAssessmentTypeFromConfig(targetConfig),
+      assessmentLength: getAssessmentLengthFromConfig(targetConfig),
+      debugPrompt: DEBUG_PLAYGROUND_PROMPT,
     });
 
     const metadataRaw = (result as { metadata?: Partial<RunMetadata> }).metadata;
     const metadata: RunMetadata = {
       mode: 'parity',
       importable: Boolean(metadataRaw?.importable),
+      prompts: Array.isArray(metadataRaw?.prompts)
+        ? metadataRaw.prompts.filter(
+            (row): row is { criterionName: string; prompt: string } =>
+              !!row &&
+              typeof row === 'object' &&
+              typeof (row as { criterionName?: unknown }).criterionName === 'string' &&
+              typeof (row as { prompt?: unknown }).prompt === 'string'
+          )
+        : undefined,
+      outputs: Array.isArray(metadataRaw?.outputs)
+        ? metadataRaw.outputs.filter(
+            (row): row is { criterionName: string; output: string } =>
+              !!row &&
+              typeof row === 'object' &&
+              typeof (row as { criterionName?: unknown }).criterionName === 'string' &&
+              typeof (row as { output?: unknown }).output === 'string'
+          )
+        : undefined,
     };
+
+    if (metadata.prompts?.length) {
+      console.groupCollapsed('[Prompt Playground] Prompts sent to LLM');
+      metadata.prompts.forEach((row, idx) => {
+        console.log(`#${idx + 1} ${row.criterionName}\n${row.prompt}`);
+      });
+      console.groupEnd();
+    }
+
+    if (metadata.outputs?.length) {
+      console.groupCollapsed('[Prompt Playground] LLM outputs');
+      metadata.outputs.forEach((row, idx) => {
+        console.log(`#${idx + 1} ${row.criterionName}\n${row.output}`);
+      });
+      console.groupEnd();
+    }
 
     return {
       results: normalizeTestResults((result as { results?: unknown }).results),
@@ -1640,6 +1998,8 @@ export default function PromptPlayground() {
     setGradingError(null);
     setRunResultsByEssay([]);
     setRunMetadata(null);
+    const snapshot = cloneConfig(config);
+    setRunConfig(snapshot);
 
     try {
       const runs = Math.min(3, Math.max(1, runCount));
@@ -1654,7 +2014,7 @@ export default function PromptPlayground() {
 
         const outputs: TestResult[][] = [];
         for (let idx = 0; idx < runs; idx += 1) {
-          const graded = await runGrade(config, targetEssay.text);
+          const graded = await runGrade(snapshot, targetEssay.text);
           outputs.push(graded.results);
           if (essayIndex === 0 && idx === 0) {
             setRunMetadata(graded.metadata);
@@ -1691,6 +2051,7 @@ export default function PromptPlayground() {
     });
 
     persistSets(next, activeSetId);
+    setConfigCollapsed(false);
     setSelectedVersionId(nextVersion.id);
     setSavedPulse(true);
     setTimeout(() => setSavedPulse(false), 1500);
@@ -1828,10 +2189,25 @@ export default function PromptPlayground() {
     setOptimizationError(null);
 
     try {
-      const optimized = await optimizePlaygroundConfig(baseConfig, feedback);
-      const revised = optimized.revisedConfig as PromptConfig;
+      const optimizerInput: Record<string, unknown> = {
+        criteria: baseConfig.criteria,
+        feedbackInstructionText: baseConfig.feedbackInstructionText || '',
+      };
+      const optimized = await optimizePlaygroundConfig(optimizerInput, feedback);
+      const revisedPatch = optimized.revisedConfig as Partial<BuilderPromptConfig>;
+      const revised: BuilderPromptConfig = {
+        ...baseConfig,
+        criteria: Array.isArray(revisedPatch.criteria) && revisedPatch.criteria.length > 0
+          ? (revisedPatch.criteria as RubricCriterion[])
+          : baseConfig.criteria,
+        feedbackInstructionText:
+          typeof revisedPatch.feedbackInstructionText === 'string'
+            ? revisedPatch.feedbackInstructionText
+            : baseConfig.feedbackInstructionText,
+      };
       setOptimizedConfig(revised);
       persistOptimizationIteration(feedback, baseConfig, revised);
+      setOptimizerGoal('');
       setBaselineResults(null);
       setOptimizedResults(null);
       setCompareError(null);
@@ -1839,6 +2215,7 @@ export default function PromptPlayground() {
       const fallback = draftOptimizedConfig(baseConfig, feedback);
       setOptimizedConfig(fallback);
       persistOptimizationIteration(feedback, baseConfig, fallback);
+      setOptimizerGoal('');
       setOptimizationError(
         error instanceof Error ? `${error.message} (fallback draft used)` : 'Optimization failed (fallback draft used)'
       );
@@ -1856,7 +2233,6 @@ export default function PromptPlayground() {
     try {
       await compareConfigs(iterationId);
       setIterationLastRunEssay((prev) => ({ ...prev, [iterationId]: primaryEssayText }));
-      setComposerAnchorIterationId(iterationId);
     } finally {
       setCompareLoadingId(null);
     }
@@ -1912,10 +2288,7 @@ export default function PromptPlayground() {
   const renderFeedbackComposer = () => (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="space-y-1.5">
-        <h2 className="text-xl font-semibold tracking-tight text-slate-900">Describe your revision</h2>
-        <p className="text-sm text-slate-500">
-          Select quick tags and add free-text instructions. A new iteration will be appended below.
-        </p>
+        <h2 className="text-xl font-semibold tracking-tight text-slate-900">What would you like to improve?</h2>
       </div>
 
       <div className="mt-4 grid gap-3">
@@ -1962,7 +2335,7 @@ export default function PromptPlayground() {
         rows={6}
         value={optimizerGoal}
         onChange={(e) => setOptimizerGoal(e.target.value)}
-        placeholder="Describe how you want to revise the prompt. You can combine predefined tags and custom instructions."
+        placeholder="Describe how you want to revise the latest config for the next iteration."
         className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
       />
 
@@ -1986,7 +2359,6 @@ export default function PromptPlayground() {
         )}
       </div>
 
-      {optimizationError && <p className="mt-2 text-xs text-amber-700">{optimizationError}</p>}
     </div>
   );
 
@@ -2012,19 +2384,25 @@ export default function PromptPlayground() {
           promptSlots: buildPromptSlotsFromConfig(baselineConfig),
           styleOverrides: buildStyleOverridesFromConfig(baselineConfig),
           assessmentType: getAssessmentTypeFromConfig(baselineConfig),
+          assessmentLength: getAssessmentLengthFromConfig(baselineConfig),
         },
         revisedConfig: {
           ...revisedConfig,
           promptSlots: buildPromptSlotsFromConfig(revisedConfig),
           styleOverrides: buildStyleOverridesFromConfig(revisedConfig),
           assessmentType: getAssessmentTypeFromConfig(revisedConfig),
+          assessmentLength: getAssessmentLengthFromConfig(revisedConfig),
         },
       });
 
-      const toTestResults = (rows: Array<{ name: string; score: number; feedback: string; evidenceQuotes: string[] }>): TestResult[] =>
+      const toTestResults = (rows: Array<{ name: string; score: number; feedback: string; feedbackParts?: string[]; evidenceQuotes: string[] }>): TestResult[] =>
         rows.map((row) => ({
           criterionName: row.name,
-          justification: row.feedback ? [row.feedback] : [],
+          justification: Array.isArray(row.feedbackParts) && row.feedbackParts.length > 0
+            ? row.feedbackParts
+            : row.feedback
+            ? [row.feedback]
+            : [],
           evidenceQuotes: row.evidenceQuotes.map((quote) => ({ quote })),
           score: row.score,
         }));
@@ -2071,17 +2449,27 @@ export default function PromptPlayground() {
         feedbackBehavior: nextBehavior,
       };
 
-      return {
-        ...nextConfig,
-        feedbackInstructionText: getDefaultFeedbackInstructionText(nextConfig),
-      };
+      return nextConfig;
     });
   };
 
   const isSetupMode = !!activeSet && !activeSet.configured;
   const latestBuilderRun = primaryRunOutputs[primaryRunOutputs.length - 1] || [];
-  const showIterationHistory =
-    iterationTimeline.length > 0 && (optimizerGoal.trim().length > 0 || composerAnchorIterationId !== null);
+  const latestIteration = sessionIterations[0] ?? null;
+  const latestIterationId = latestIteration?.id ?? null;
+  const latestIterationCompare = latestIterationId ? comparisonByIteration[latestIterationId] : null;
+  const latestComparedSignature = latestIterationId ? iterationLastComparedConfigSignature[latestIterationId] : undefined;
+  const latestComparedEssay = latestIterationId ? iterationLastRunEssay[latestIterationId] : undefined;
+  const latestConfigCompared =
+    latestIteration !== null &&
+    typeof latestComparedSignature === 'string' &&
+    latestComparedSignature === getConfigSignature(latestIteration.revisedConfig);
+  const latestEssayCompared = latestIteration !== null && latestComparedEssay === primaryEssayText;
+  const latestCompareReady = Boolean(latestIterationCompare) && latestConfigCompared && latestEssayCompared;
+  const canShowFeedbackComposer =
+    sessionIterations.length === 0 ||
+    latestCompareReady;
+  const showIterationHistory = iterationTimeline.length > 0;
 
   return (
     <motion.section
@@ -2216,15 +2604,6 @@ export default function PromptPlayground() {
                         }
                       }}
                     />
-                    {!isSetupMode && (
-                      <button
-                        onClick={() => setConfigCollapsed(true)}
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
-                        title="Collapse configuration"
-                      >
-                        <PanelLeftClose className="h-4 w-4" />
-                      </button>
-                    )}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
@@ -2235,15 +2614,6 @@ export default function PromptPlayground() {
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
-                    {!isSetupMode && (
-                      <button
-                        onClick={() => setConfigCollapsed(true)}
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
-                        title="Collapse configuration"
-                      >
-                        <PanelLeftClose className="h-4 w-4" />
-                      </button>
-                    )}
                   </div>
                 ))}
               </div>
@@ -2259,7 +2629,7 @@ export default function PromptPlayground() {
                   <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
                     <span className="inline-flex items-center gap-1.5 text-slate-900">
                       <FileText className="h-4 w-4 text-slate-800" />
-                      Rubric Builder
+                      Rubric
                     </span>
                   </summary>
                   <div className="border-t border-slate-200 px-6 pb-4 pt-3">
@@ -2270,6 +2640,12 @@ export default function PromptPlayground() {
                       >
                         <Upload className="h-3.5 w-3.5" />
                         Import Rubric
+                      </button>
+                      <button
+                        onClick={() => setConfig((c) => ({ ...c, criteria: EXAMPLE_RUBRIC }))}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-indigo-300 px-2.5 py-1 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50"
+                      >
+                        Load Example
                       </button>
                     </div>
                     <RubricTable
@@ -2306,7 +2682,7 @@ export default function PromptPlayground() {
                       </div>
                     </div>
                     <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Length</p>
+                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">FEEDBACK LENGTH</p>
                       <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                         {LENGTH_TAG_OPTIONS.map((option) => (
                           <button
@@ -2321,37 +2697,7 @@ export default function PromptPlayground() {
                       </div>
                     </div>
                     <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Tone</p>
-                      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
-                        {TONE_TAG_OPTIONS.map((option) => (
-                          <button
-                            key={`setup-tone-${option.value}`}
-                            type="button"
-                            onClick={() => updateFeedbackBehaviorAndImport({ tonePreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).tonePreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Language Level (Wording)</p>
-                      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
-                        {WORDING_TAG_OPTIONS.map((option) => (
-                          <button
-                            key={`setup-wording-${option.value}`}
-                            type="button"
-                            onClick={() => updateFeedbackBehaviorAndImport({ englishLevelPreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).englishLevelPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Additional Instruction</p>
                       <textarea
                         rows={5}
                         value={config.feedbackInstructionText || ''}
@@ -2390,7 +2736,7 @@ export default function PromptPlayground() {
             <div className="relative">
               <div className="flex flex-col gap-6 xl:flex-row">
                 <div
-                  className={`shrink-0 overflow-hidden transition-[width,opacity,transform] duration-300 ease-in-out ${configCollapsed ? 'pointer-events-none w-0 -translate-x-4 opacity-0' : 'w-full translate-x-0 opacity-100 xl:w-[420px]'}`}
+                  className={`shrink-0 transition-[width,opacity,transform] duration-300 ease-in-out ${configCollapsed ? 'pointer-events-none w-0 -translate-x-4 overflow-hidden opacity-0' : 'w-full translate-x-0 overflow-visible opacity-100 xl:w-[420px]'}`}
                 >
                   {!configCollapsed && (
                     <div className="flex h-[calc(100vh-190px)] min-h-0 w-full flex-col xl:w-[420px]">
@@ -2414,7 +2760,7 @@ export default function PromptPlayground() {
                             setSavedPulse(true);
                             setTimeout(() => setSavedPulse(false), 1500);
                           }}
-                          className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-800 focus:outline-none focus:ring-0"
                         >
                           {activeVersions.map((version) => (
                             <option key={version.id} value={version.id}>
@@ -2422,6 +2768,13 @@ export default function PromptPlayground() {
                             </option>
                           ))}
                         </select>
+                        <button
+                          onClick={() => setConfigCollapsed(true)}
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
+                          title="Collapse configuration"
+                        >
+                          <PanelLeftClose className="h-4 w-4" />
+                        </button>
                       </div>
                     )}
 
@@ -2443,7 +2796,7 @@ export default function PromptPlayground() {
                         <summary className="flex cursor-pointer list-none items-center justify-between bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
                           <span className="inline-flex items-center gap-1.5 text-slate-900">
                             <FileText className="h-4 w-4 text-slate-800" />
-                            Rubric Builder
+                            Rubric
                           </span>
                           <button
                             type="button"
@@ -2452,6 +2805,13 @@ export default function PromptPlayground() {
                           >
                             <Upload className="h-3.5 w-3.5" />
                             Import Rubric
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfig((c) => ({ ...c, criteria: EXAMPLE_RUBRIC })); }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-indigo-300 px-2.5 py-1 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50"
+                          >
+                            Load Example
                           </button>
                         </summary>
                         <div className="border-t border-slate-200 px-6 pb-4 pt-3">
@@ -2489,7 +2849,7 @@ export default function PromptPlayground() {
                             </div>
                           </div>
                           <div>
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Length</p>
+                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">FEEDBACK LENGTH</p>
                             <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
                               {LENGTH_TAG_OPTIONS.map((option) => (
                                 <button
@@ -2504,37 +2864,7 @@ export default function PromptPlayground() {
                             </div>
                           </div>
                           <div>
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Tone</p>
-                            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
-                              {TONE_TAG_OPTIONS.map((option) => (
-                                <button
-                                  key={`builder-tone-${option.value}`}
-                                  type="button"
-                                  onClick={() => updateFeedbackBehaviorAndImport({ tonePreset: option.value })}
-                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).tonePreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
-                                >
-                                  {option.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <div>
-                            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Language Level (Wording)</p>
-                            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin] [&>*]:shrink-0">
-                              {WORDING_TAG_OPTIONS.map((option) => (
-                                <button
-                                  key={`builder-wording-${option.value}`}
-                                  type="button"
-                                  onClick={() => updateFeedbackBehaviorAndImport({ englishLevelPreset: option.value })}
-                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).englishLevelPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
-                                >
-                                  {option.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div>
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Additional Instruction</p>
                             <textarea
                               rows={5}
                               value={config.feedbackInstructionText || ''}
@@ -2585,7 +2915,7 @@ export default function PromptPlayground() {
                       className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Plus className="h-3.5 w-3.5" />
-                      Add Essay
+                      Add Essay ({Math.max(0, 3 - essays.length)} left)
                     </button>
                   </div>
                 </div>
@@ -2631,33 +2961,39 @@ export default function PromptPlayground() {
                           onChange={(e) => updateEssay(essay.id, e.target.value)}
                           placeholder="Paste or type the student essay here..."
                           rows={8}
-                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                         />
                       </div>
                     ))}
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={runBuilderGrade}
-                      disabled={!validation.valid || !primaryEssayText.trim() || gradingLoading}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-800 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {gradingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                      {gradingLoading ? 'Grading...' : `Run (${runCount}x)`}
-                    </button>
-                    <div className="relative">
-                      <button
-                        onClick={() => setRunMenuOpen((v) => !v)}
-                        disabled={!validation.valid || !primaryEssayText.trim() || gradingLoading}
-                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        title="Select run count"
-                      >
-                        Run Times
-                        <ChevronDown className="h-4 w-4" />
-                      </button>
+                    <div className="relative flex-1">
+                      <div className="flex items-stretch overflow-hidden rounded-lg border border-slate-300 shadow-sm">
+                        <button
+                          onClick={runBuilderGrade}
+                          disabled={!validation.valid || !primaryEssayText.trim() || gradingLoading}
+                          className="inline-flex flex-1 items-center justify-center gap-2 bg-slate-800 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {gradingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                          {gradingLoading ? 'Grading...' : 'Run'}
+                        </button>
+                        <button
+                          onClick={() => setRunMenuOpen((v) => !v)}
+                          disabled={!validation.valid || !primaryEssayText.trim() || gradingLoading}
+                          aria-haspopup="menu"
+                          aria-expanded={runMenuOpen}
+                          className="relative inline-flex min-w-[142px] items-center justify-center border-l-2 border-slate-500 bg-slate-800 px-3 py-2.5 pr-8 text-sm font-medium text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Select run count"
+                        >
+                          <span className="text-center">Times: {runCount}</span>
+                          <span className="absolute right-3 text-slate-200">
+                            <ChevronDown className="h-4 w-4" />
+                          </span>
+                        </button>
+                      </div>
                       {runMenuOpen && (
-                        <div className="absolute right-0 top-11 z-20 w-36 rounded-lg border border-slate-200 bg-slate-50/95 p-1 shadow-lg backdrop-blur-sm">
+                        <div className="absolute right-0 top-full z-20 mt-1.5 w-44 rounded-lg border border-slate-200 bg-slate-50/95 p-1 shadow-lg backdrop-blur-sm">
                           {[1, 2, 3].map((n) => (
                             <button
                               key={n}
@@ -2675,38 +3011,37 @@ export default function PromptPlayground() {
                         </div>
                       )}
                     </div>
-                    <button
-                      onClick={() => {
-                        const latestRun = primaryRunOutputs[primaryRunOutputs.length - 1] || null;
-                        setBaselineResults(latestRun);
-                        setOptimizedResults(null);
-                        setCompareError(null);
-                        setOptimizerSessionIterationIds([]);
-                        setSelectedIterationId('');
-                        setComposerAnchorIterationId(null);
-                        setOptimizerGoal('');
-                        setOptimizedConfig(null);
-                        setComparisonByIteration({});
-                        setIterationLastComparedConfigSignature({});
-                        setIterationLastRunEssay({});
-                        setIterationEditModeById({});
-                        setLastAttemptedIterationId(null);
-                        if (primaryEssayText.trim()) {
-                          setPrimaryEssayText(primaryEssayText);
-                        }
-                        setView('optimizer');
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      Optimize Prompt
-                    </button>
                   </div>
                 </div>
 
-                <div className="mb-3 mt-4 flex items-center justify-between">
+                <div className="mb-3 mt-4 flex items-center gap-2">
                   <h2 className="text-sm font-medium">Results {runCount > 1 ? `(${runCount} runs)` : ''}</h2>
-                  <div />
+                  <button
+                    onClick={() => {
+                      const latestRun = primaryRunOutputs[primaryRunOutputs.length - 1] || null;
+                      setBaselineResults(latestRun);
+                      setOptimizedResults(null);
+                      setCompareError(null);
+                      setOptimizerSessionIterationIds([]);
+                      setSelectedIterationId('');
+                      setOptimizerGoal('');
+                      setOptimizedConfig(null);
+                      setComparisonByIteration({});
+                      setIterationLastComparedConfigSignature({});
+                      setIterationLastRunEssay({});
+                      setIterationEditModeById({});
+                      setIterationFeedbackEditModeById({});
+                      setLastAttemptedIterationId(null);
+                      if (primaryEssayText.trim()) {
+                        setPrimaryEssayText(primaryEssayText);
+                      }
+                      setView('optimizer');
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-100 px-3 py-2 text-sm font-semibold text-sky-800 shadow-sm transition-colors hover:bg-sky-200"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Improve Grading
+                  </button>
                 </div>
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
@@ -2741,7 +3076,7 @@ export default function PromptPlayground() {
                             return (
                               <div key={`graph-${essayIdx}`} className="min-w-[480px] flex-1">
                                 <p className="mb-2 text-sm font-medium text-slate-600">Essay {essayIdx + 1}</p>
-                                <ScoreConsistencyChart essayRuns={essayRuns} criteria={config.criteria} />
+                                <ScoreConsistencyChart essayRuns={essayRuns} criteria={(runConfig ?? config).criteria} />
                               </div>
                             );
                           })}
@@ -2759,7 +3094,7 @@ export default function PromptPlayground() {
                                 <div className={stackRuns ? 'space-y-3' : `grid gap-3 ${runsToShow.length === 1 ? 'grid-cols-1' : runsToShow.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
                                   {runsToShow.map((runRows, runIdx) => {
                                     const total = getSetTotal(runRows);
-                                    const maxTotal = getMaxTotal(config.criteria);
+                                    const maxTotal = getMaxTotal((runConfig ?? config).criteria);
                                     return (
                                       <div key={`essay-${essayIdx}-run-${runIdx}`} className="space-y-2">
                                         {runCount > 1 && (
@@ -2781,7 +3116,7 @@ export default function PromptPlayground() {
                                             </thead>
                                             <tbody>
                                               {runRows.map((row) => {
-                                                const maxScore = config.criteria.find((c) => c.name === row.criterionName)?.maxScore ?? 0;
+                                                const maxScore = (runConfig ?? config).criteria.find((c) => c.name === row.criterionName)?.scoreRange.max ?? 0;
                                                 return (
                                                   <tr key={`${essayIdx}-${runIdx}-${row.criterionName}`} className="border-t border-slate-200 align-top">
                                                     <td className="px-3 py-2 font-semibold text-slate-700">{row.criterionName}</td>
@@ -2791,7 +3126,23 @@ export default function PromptPlayground() {
                                                       </span>
                                                     </td>
                                                     <td className="px-2 py-2 text-slate-600">
-                                                      <p className="text-sm">{row.justification?.[0] || 'No feedback generated.'}</p>
+                                                      {row.justification?.length > 0 ? (
+                                                        getFeedbackBehavior(runConfig ?? config).format === 'bullets' ? (
+                                                          <ul className="list-disc space-y-1 pl-4 text-sm">
+                                                            {row.justification.map((part, idx) => (
+                                                              <li key={`${essayIdx}-${runIdx}-${row.criterionName}-j-${idx}`}>{part}</li>
+                                                            ))}
+                                                          </ul>
+                                                        ) : (
+                                                          <div className="space-y-1 text-sm">
+                                                            {row.justification.map((part, idx) => (
+                                                              <p key={`${essayIdx}-${runIdx}-${row.criterionName}-j-${idx}`}>{part}</p>
+                                                            ))}
+                                                          </div>
+                                                        )
+                                                      ) : (
+                                                        <p className="text-sm">No feedback generated.</p>
+                                                      )}
                                                       {row.evidenceQuotes?.length > 0 && (
                                                         <details className="mt-2">
                                                           <summary className="cursor-pointer text-xs font-medium text-indigo-500">
@@ -2856,218 +3207,11 @@ export default function PromptPlayground() {
                 <ArrowLeft className="h-4 w-4" />
               </button>
               <div className="min-w-0 flex-1">
-                <h1 className="truncate font-display text-2xl font-semibold">Improve Grading Instruction</h1>
-                <p className="text-sm text-slate-500">Iteratively refine your instruction through feedback and testing.</p>
+                <h1 className="truncate font-display text-2xl font-semibold">Improve Grading Instructions</h1>
+                <p className="text-sm text-slate-500">Refine your grading instructions iteratively to enhance evaluation quality.</p>
               </div>
-              <button
-                onClick={() => setView('dashboard')}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-              >
-                <LayoutDashboard className="h-4 w-4" />
-                Dashboard
-              </button>
             </div>
           </div>
-
-          {/* ── Step 1: Review ── */}
-          <section className="mb-6 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Current Prompt Config</h2>
-              <p className="mt-1 text-xs text-slate-500">Use the same controls as Builder: Rubric Builder and Feedback Setting.</p>
-              <div className="mt-3 max-h-[520px] space-y-3 overflow-y-auto pr-1">
-                <details open className="rounded-xl border border-slate-200 bg-white">
-                  <summary className="flex cursor-pointer list-none items-center justify-between bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
-                    <span className="inline-flex items-center gap-1.5 text-slate-900">
-                      <FileText className="h-4 w-4 text-slate-800" />
-                      Rubric Builder
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfig((c) => ({ ...c, criteria: PREDEFINED_RUBRIC })); }}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 hover:text-indigo-800"
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      Import Rubric
-                    </button>
-                  </summary>
-                  <div className="border-t border-slate-200 px-6 pb-4 pt-3">
-                    <RubricTable
-                      criteria={config.criteria}
-                      onChange={(criteria) => setConfig((c) => ({ ...c, criteria }))}
-                    />
-                  </div>
-                </details>
-
-                <details open className="rounded-xl border border-slate-200 bg-white">
-                  <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
-                    <span className="inline-flex items-center gap-1.5 text-slate-900">
-                      <MessageSquare className="h-4 w-4 text-slate-800" />
-                      Feedback Setting
-                    </span>
-                  </summary>
-                  <div className="space-y-3 border-t border-amber-200/80 px-6 pb-4 pt-3">
-                    <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Feedback Format</p>
-                      <div className="flex flex-wrap gap-2">
-                        {[
-                          { value: 'paragraph' as const, label: 'Flow Text' },
-                          { value: 'bullets' as const, label: 'Bullet Points' },
-                        ].map((option) => (
-                          <button
-                            key={`optimizer-format-${option.value}`}
-                            type="button"
-                            onClick={() => updateFeedbackBehaviorAndImport({ format: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Length</p>
-                      <div className="flex flex-wrap gap-2">
-                        {LENGTH_TAG_OPTIONS.map((option) => (
-                          <button
-                            key={`optimizer-length-${option.value}`}
-                            type="button"
-                            onClick={() => updateFeedbackBehaviorAndImport({ lengthPreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Tone</p>
-                      <div className="flex flex-wrap gap-2">
-                        {TONE_TAG_OPTIONS.map((option) => (
-                          <button
-                            key={`optimizer-tone-${option.value}`}
-                            type="button"
-                            onClick={() => updateFeedbackBehaviorAndImport({ tonePreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).tonePreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Language Level (Wording)</p>
-                      <div className="flex flex-wrap gap-2">
-                        {WORDING_TAG_OPTIONS.map((option) => (
-                          <button
-                            key={`optimizer-wording-${option.value}`}
-                            type="button"
-                            onClick={() => updateFeedbackBehaviorAndImport({ englishLevelPreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).englishLevelPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
-                      <textarea
-                        rows={5}
-                        value={config.feedbackInstructionText || ''}
-                        onChange={(e) =>
-                          setConfig((c) => ({
-                            ...c,
-                            feedbackInstructionText: e.target.value,
-                          }))
-                        }
-                        placeholder="Click tags to insert predefined prompts. You can edit this text freely."
-                        className="w-full rounded-md border border-slate-300 bg-white/80 px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
-                      />
-                      <p className="mt-2 text-[11px] text-slate-600">Click tags to insert predefined prompts. You can edit this text freely.</p>
-                    </div>
-                  </div>
-                </details>
-
-                {!validation.valid && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-                    {validation.errors[0]}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Baseline Grading Results</h2>
-              <p className="mt-1 text-xs text-slate-500">Latest Builder run for this config.</p>
-              {latestBuilderRun.length > 0 ? (
-                <div className="mt-3 space-y-3">
-                  <div className="flex items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-                    <div className="text-3xl font-bold leading-none text-slate-800">{getSetTotal(latestBuilderRun)}</div>
-                    <div className="pb-0.5 text-sm font-medium text-slate-600">Overall Score</div>
-                    <div className="pb-0.5 text-sm text-slate-400">/ {getMaxTotal(config.criteria)}</div>
-                  </div>
-
-                  <div className="max-h-[380px] overflow-y-auto">
-                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                      <table className="w-full text-sm">
-                        <thead className="bg-slate-50 text-slate-500">
-                          <tr>
-                            <th className="px-3 py-2 text-left font-semibold">Criterion</th>
-                            <th className="w-20 px-2 py-2 text-left font-semibold">Score</th>
-                            <th className="px-2 py-2 text-left font-semibold">Feedback</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {latestBuilderRun.map((row) => {
-                            const maxScore = config.criteria.find((c) => c.name === row.criterionName)?.maxScore ?? 0;
-                            return (
-                              <tr key={`baseline-${row.criterionName}`} className="border-t border-slate-200 align-top">
-                                <td className="px-3 py-2 font-semibold text-slate-700">{row.criterionName}</td>
-                                <td className="px-2 py-2">
-                                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${getScorePillClass(row.score, maxScore)}`}>
-                                    {row.score}/{maxScore || '?'}
-                                  </span>
-                                </td>
-                                <td className="px-2 py-2 text-slate-600">
-                                  <p className="text-sm">{row.justification?.[0] || 'No feedback generated.'}</p>
-                                  {row.evidenceQuotes?.length > 0 && (
-                                    <div className="mt-2">
-                                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                        Evidence ({row.evidenceQuotes.length})
-                                      </p>
-                                      <ul className="list-disc space-y-0.5 pl-4 text-xs text-slate-500">
-                                        {row.evidenceQuotes.map((quoteRow, quoteIdx) => (
-                                          <li key={`baseline-${row.criterionName}-evidence-${quoteIdx}`}>
-                                            {quoteRow.quote}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">
-                  Run grading in Builder first to see baseline results here.
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* ── Step 2: Feedback Composer ── */}
-          {(!composerAnchorIterationId || !comparisonByIteration[composerAnchorIterationId]) && (
-            <section ref={feedbackComposerRef} className="mb-6">
-              {renderFeedbackComposer()}
-            </section>
-          )}
 
           {/* ── Steps 3–5: Iteration History ── */}
           {showIterationHistory && (
@@ -3148,6 +3292,13 @@ export default function PromptPlayground() {
                               [iteration.id]: !prev[iteration.id],
                             }))
                           }
+                          isFeedbackEditing={Boolean(iterationFeedbackEditModeById[iteration.id])}
+                          onToggleFeedbackEdit={() =>
+                            setIterationFeedbackEditModeById((prev) => ({
+                              ...prev,
+                              [iteration.id]: !prev[iteration.id],
+                            }))
+                          }
                         />
                       </div>
 
@@ -3185,6 +3336,7 @@ export default function PromptPlayground() {
                               maxTotal={getMaxTotal(iteration.baselineConfig.criteria)}
                               rows={iterationCompare.baseline}
                               criteria={iteration.baselineConfig.criteria}
+                              feedbackFormat={getFeedbackBehavior(iteration.baselineConfig).format}
                               accent="slate"
                             />
                             <CompareResultColumn
@@ -3193,44 +3345,32 @@ export default function PromptPlayground() {
                               maxTotal={getMaxTotal(iteration.revisedConfig.criteria)}
                               rows={iterationCompare.revised}
                               criteria={iteration.revisedConfig.criteria}
+                              feedbackFormat={getFeedbackBehavior(iteration.revisedConfig).format}
                               accent="indigo"
                             />
                           </div>
                         </div>
                       )}
 
-                      {/* Continue from here (only after comparison) */}
-                      {iterationCompare && (
-                        <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">
-                          <p className="mb-2 text-xs font-semibold text-indigo-800">Continue from this iteration</p>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedIterationId(iteration.id);
-                              setOptimizedConfig(cloneConfig(iteration.revisedConfig));
-                              setOptimizerGoal('');
-                              setComposerAnchorIterationId(iteration.id);
-                              feedbackComposerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            }}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
-                          >
-                            <Wand2 className="h-3.5 w-3.5" />
-                            Revise from here
-                          </button>
-                          <p className="mt-1 text-[11px] text-indigo-600">Uses this iteration as the base for the next revision.</p>
-                        </div>
-                      )}
-
-                        {composerAnchorIterationId === iteration.id && iterationCompare && (
-                          <div ref={feedbackComposerRef} className="mt-4">
-                            {renderFeedbackComposer()}
-                          </div>
-                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
+            </section>
+          )}
+
+          {/* ── Step 2: Feedback Composer ── */}
+          {canShowFeedbackComposer ? (
+            <section className="mb-6 mt-6">
+              {renderFeedbackComposer()}
+            </section>
+          ) : (
+            <section className="mb-6 mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-xl font-semibold tracking-tight text-slate-900">What would you like to improve?</h2>
+              <p className="mt-2 text-sm text-slate-500">
+                Grade and compare the latest config before creating the next revision.
+              </p>
             </section>
           )}
         </div>

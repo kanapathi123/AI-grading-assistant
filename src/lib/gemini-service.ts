@@ -55,11 +55,13 @@ export interface PlaygroundGradeResult {
   metadata: {
     mode: 'parity';
     importable: boolean;
+    prompts?: Array<{ criterionName: string; prompt: string }>;
+    outputs?: Array<{ criterionName: string; output: string }>;
   };
 }
 
 export interface PlaygroundOptimizeResult {
-  revisedConfig: PromptConfig;
+  revisedConfig: Record<string, unknown>;
 }
 
 export interface PlaygroundSuggestion {
@@ -76,6 +78,7 @@ export interface PlaygroundCompareGradeResult {
       score: number;
       maxScore: number;
       feedback: string;
+      feedbackParts?: string[];
       evidenceQuotes: string[];
     }>;
   };
@@ -87,6 +90,7 @@ export interface PlaygroundCompareGradeResult {
       score: number;
       maxScore: number;
       feedback: string;
+      feedbackParts?: string[];
       evidenceQuotes: string[];
     }>;
   };
@@ -248,7 +252,7 @@ export const reviseCriterionScoreWithJustification = async (
  * Optimize builder config using user feedback.
  */
 export const optimizePlaygroundConfig = async (
-  currentConfig: PromptConfig,
+  currentConfig: Record<string, unknown>,
   feedback: string,
   modelOverride?: string
 ): Promise<PlaygroundOptimizeResult> => {
@@ -258,7 +262,7 @@ export const optimizePlaygroundConfig = async (
     modelOverride,
   });
 
-  const revisedConfig = result?.revisedConfig as PromptConfig | undefined;
+  const revisedConfig = result?.revisedConfig as Record<string, unknown> | undefined;
   if (!revisedConfig) {
     throw new Error('Optimization response did not include revisedConfig');
   }
@@ -275,6 +279,8 @@ export const gradePlaygroundWithConfig = async (params: {
   promptSlots: EditablePromptSlots;
   styleOverrides?: Partial<FeedbackStyleConfig>;
   assessmentType?: 'flow' | 'bullets';
+  assessmentLength?: AssessmentLength;
+  debugPrompt?: boolean;
   modelOverride?: string;
 }): Promise<PlaygroundGradeResult> => {
   const result = await callApi('playgroundGrade', {
@@ -283,6 +289,8 @@ export const gradePlaygroundWithConfig = async (params: {
     promptSlots: params.promptSlots,
     styleOverrides: params.styleOverrides,
     assessmentType: params.assessmentType || 'flow',
+    assessmentLength: params.assessmentLength || 'medium',
+    debugPrompt: Boolean(params.debugPrompt),
     modelOverride: params.modelOverride,
   });
 
@@ -330,11 +338,13 @@ export const comparePlaygroundGrades = async (params: {
     promptSlots: EditablePromptSlots;
     styleOverrides?: Partial<FeedbackStyleConfig>;
     assessmentType: 'flow' | 'bullets';
+    assessmentLength: AssessmentLength;
   };
   revisedConfig: PromptConfig & {
     promptSlots: EditablePromptSlots;
     styleOverrides?: Partial<FeedbackStyleConfig>;
     assessmentType: 'flow' | 'bullets';
+    assessmentLength: AssessmentLength;
   };
   modelOverride?: string;
 }): Promise<PlaygroundCompareGradeResult> => {

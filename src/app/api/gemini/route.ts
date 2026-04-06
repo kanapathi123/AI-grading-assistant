@@ -447,29 +447,95 @@ function cleanJsonObject(text: string): string {
   return cleaned;
 }
 
+function extractMarkdownCodeFence(text: string): string | null {
+  const match = text.match(/```(?:json|js|javascript)?\s*([\s\S]*?)```/i);
+  if (!match || typeof match[1] !== 'string') return null;
+  const candidate = match[1].trim();
+  return candidate.length > 0 ? candidate : null;
+}
+
+function extractBalancedJsonObject(text: string): string | null {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let isEscaped = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (start === -1) {
+      if (char === '{') {
+        start = i;
+        depth = 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+      } else if (char === '\\') {
+        isEscaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      depth += 1;
+      continue;
+    }
+
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseJsonObjectFromModelOutput(raw: string): Record<string, unknown> | null {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  const enqueue = (value: string | null | undefined) => {
+    if (!value) return;
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    candidates.push(trimmed);
+  };
+
+  enqueue(raw);
+  enqueue(cleanJsonObject(raw));
+
+  const fenced = extractMarkdownCodeFence(raw);
+  enqueue(fenced);
+  enqueue(fenced ? cleanJsonObject(fenced) : null);
+
+  const balanced = extractBalancedJsonObject(raw);
+  enqueue(balanced);
+
+  for (const candidate of candidates) {
+    const parsed = safeParseJsonObject(candidate);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
 /* ============================================================ */
 /*  Rubric Context Cache                                         */
 /* ============================================================ */
-
-const GRADING_SYSTEM_PROMPT = `You are a strict essay grader for a masters level course. Hold students to a high standard. If something is weak, say so plainly. If something is good, say so briefly. Do not use fancy language, filler words, or unnecessary adjectives. Write like you are talking to the student directly — short sentences, plain English.
-
-GRADING METHODOLOGY:
-1. Read the full essay before grading anything.
-2. For each criterion, check the essay against EVERY score level in the rubric (low to high). Find the level that fits best.
-3. Give the score of the closest matching level. If it falls between two levels, pick the nearer one — do not default to the middle.
-4. In your justification, point to specific rubric levels and say why the essay fits or does not fit them.
-5. Do NOT make the score obvious from your justification — the reader should not be able to guess the exact number.
-
-WRITING STYLE:
-- Use simple, direct English. No fancy words. No filler.
-- Say "the essay does X" not "the essay demonstrates a commendable ability to X".
-- Say "this is missing" not "there is a notable absence of".
-- Keep sentences short. One idea per sentence.
-
-EVIDENCE RULES:
-- Every quote MUST be copied EXACTLY from the essay. Do not change any words, fix grammar, or rephrase.
-- If you cannot find an exact quote, do not make one up.
-- Pick quotes that are specific to this criterion, not generic lines that could apply to anything.`;
 
 async function handleCreateRubricCache(payload: {
   rubricContent: string;
@@ -601,137 +667,36 @@ async function handleGradeCriterion(payload: {
   modelOverride?: string;
 }) {
   const modelSelection = resolveModelSelection(payload.modelOverride);
-  const assessmentType = payload.assessmentType || 'flow';
-  const assessmentLength = payload.assessmentLength || 'long';
-
-  let justificationInstruction = '';
-  let justificationSchema = '';
-  if (assessmentType === 'bullets') {
-    justificationInstruction =
-      'Present your justification as bullet points. Return the justification as a JSON array of strings, where each string is a bullet point.';
-    justificationSchema =
-      '"justification": ["bullet point 1", "bullet point 2", ...],';
-  } else {
-    justificationInstruction =
-      'Present your justification as a coherent paragraph. Return the justification as a single string.';
-    justificationSchema =
-      '"justification": "Your detailed justification without revealing the exact score",';
-  }
-
-  const relateInstruction = `
-    For each evidence quote, indicate which sentences or bullet points from your justification it supports. Return the indexes (starting from 0) as a field "relatedAssessmentIndexes" in each evidence object.
-    If the justification is a paragraph, treat each sentence as a unit (split on periods, exclamation marks, or question marks). If it's a list, use each bullet as a unit.`;
-
-  let lengthInstruction = '';
-  if (assessmentLength === 'short') {
-    lengthInstruction = assessmentType === 'bullets'
-      ? 'Keep it to 3-4 bullet points. Each bullet should be 1 sentence.'
-      : 'Keep the justification to 2-3 sentences total.';
-  } else if (assessmentLength === 'medium') {
-    lengthInstruction = assessmentType === 'bullets'
-      ? 'Use 4-6 bullet points. Each bullet should be 1-2 sentences.'
-      : 'Write 4-6 sentences in one paragraph.';
-  } else {
-    lengthInstruction = assessmentType === 'bullets'
-      ? 'Use 6-8 bullet points. Each bullet can be 1-2 sentences with specific examples.'
-      : 'Write a detailed paragraph of 6-10 sentences with specific examples from the essay.';
-  }
+  const assessmentType = payload.assessmentType === 'bullets' ? 'bullets' : 'flow';
+  const assessmentLength =
+    payload.assessmentLength === 'short' || payload.assessmentLength === 'medium' || payload.assessmentLength === 'long'
+      ? payload.assessmentLength
+      : 'long';
 
   const criterion = payload.criterion;
+
+  const effectivePromptConfig = getEffectivePromptConfig({
+    slotOverrides: asEditablePromptSlots(payload.promptSlots),
+    styleOverrides: asFeedbackStyleOverrides(payload.styleOverrides),
+  });
 
   // When using cache, the rubric + essay + system prompt are already cached
   // We only need to send the criterion-specific instructions
   const hasCacheAvailable = !!payload.cacheName;
-
-  let prompt: string;
-  if (hasCacheAvailable) {
-    prompt = `
-    Grade the following criterion using the rubric provided in the cached context.
-
-    ESSAY:
-    ${payload.essayContent}
-
-    CRITERION: ${criterion.name}
-    SCORE RANGE: ${criterion.scoreRange.min} to ${criterion.scoreRange.max}
-
-    INSTRUCTIONS:
-    1. First, evaluate the essay against EACH score level (${criterion.scoreRange.min} to ${criterion.scoreRange.max}) for this criterion. Determine which level the essay most closely matches.
-    2. Write a justification that is balanced and critical. Reference specific rubric level descriptions to explain your reasoning. Do not reveal or hint at the exact score. ${justificationInstruction} ${lengthInstruction}
-    3. Provide at least 5 VERBATIM quotes from the essay. CRITICAL: these must be EXACT copy-pastes from the essay — every word, space, and punctuation mark must match the original text exactly. Do NOT paraphrase, rephrase, reorder words, fix grammar, or alter the text in any way. If unsure of exact wording, use a shorter quote you are certain about.
-       Evidence requirements:
-       - From DIFFERENT parts/pages of the essay (spread across the full document)
-       - UNIQUE to this criterion — avoid generic quotes that could apply to any criterion
-       - Include quotes showing both strengths AND weaknesses
-       - Each quote must be at least one full sentence or meaningful clause
-    4. ${relateInstruction}
-    5. Assign your numerical score (${criterion.scoreRange.min}-${criterion.scoreRange.max}) — must correspond to the rubric level you identified in step 1.
-
-    FORMAT YOUR RESPONSE AS A VALID JSON object:
-    {
-      ${justificationSchema}
-      "evidence": [
-        {
-          "quote": "EXACT verbatim text from essay — character-for-character copy",
-          "paragraph": "PAGE X, Section/Paragraph identifier",
-          "relatedAssessmentIndexes": [array of integers, optional]
-        },
-        ...
-      ],
-      "score": number
-    }
-
-    DO NOT include any explanatory text before or after the JSON object.
-    ONLY return the JSON object and nothing else.
-    `;
-  } else {
-    let contextBlock = '';
-    if (payload.contextList && payload.contextList.length > 0) {
-      contextBlock =
-        'CONTEXT DUMP:\n' +
-        payload.contextList.map((ctx) => `- ${ctx.title}: ${ctx.content}`).join('\n') +
-        '\n';
-    }
-
-    prompt = `
-    ${contextBlock}
-    ${GRADING_SYSTEM_PROMPT}
-
-    CRITERION: ${criterion.name}
-    SCORE RANGE: ${criterion.scoreRange.min} to ${criterion.scoreRange.max}
-
-    ESSAY:
-    ${payload.essayContent}
-
-    INSTRUCTIONS:
-    1. First, evaluate the essay against EACH score level (${criterion.scoreRange.min} to ${criterion.scoreRange.max}) for this criterion. Determine which level the essay most closely matches.
-    2. Write a justification that is balanced and critical. Reference specific rubric level descriptions to explain your reasoning. Do not reveal or hint at the exact score. ${justificationInstruction} ${lengthInstruction}
-    3. Provide at least 5 VERBATIM quotes from the essay. CRITICAL: these must be EXACT copy-pastes from the essay — every word, space, and punctuation mark must match the original text exactly. Do NOT paraphrase, rephrase, reorder words, fix grammar, or alter the text in any way. If unsure of exact wording, use a shorter quote you are certain about.
-       Evidence requirements:
-       - From DIFFERENT parts/pages of the essay (spread across the full document)
-       - UNIQUE to this criterion — avoid generic quotes that could apply to any criterion
-       - Include quotes showing both strengths AND weaknesses
-       - Each quote must be at least one full sentence or meaningful clause
-    4. ${relateInstruction}
-    5. Assign your numerical score (${criterion.scoreRange.min}-${criterion.scoreRange.max}) — must correspond to the rubric level you identified in step 1.
-
-    FORMAT YOUR RESPONSE AS A VALID JSON object:
-    {
-      ${justificationSchema}
-      "evidence": [
-        {
-          "quote": "EXACT verbatim text from essay — character-for-character copy",
-          "paragraph": "PAGE X, Section/Paragraph identifier",
-          "relatedAssessmentIndexes": [array of integers, optional]
-        },
-        ...
-      ],
-      "score": number
-    }
-
-    DO NOT include any explanatory text before or after the JSON object.
-    ONLY return the JSON object and nothing else.
-    `;
-  }
+  const prompt = buildGradeSingleCriterionPrompt({
+    runtime: {
+      essayContent: payload.essayContent,
+      criterionName: criterion.name,
+      scoreMin: criterion.scoreRange.min,
+      scoreMax: criterion.scoreRange.max,
+      contextDump: payload.contextList,
+      assessmentType,
+      assessmentLength,
+      evidenceReferenceMode: 'page',
+    },
+    effective: effectivePromptConfig,
+    cacheMode: hasCacheAvailable ? 'cached' : 'non-cached',
+  });
 
   const maxTokens = isThinkingModel(modelSelection) ? 8192 : 2048;
 
@@ -899,16 +864,17 @@ async function handlePlaygroundOptimizeConfig(payload: {
   }
 
   const prompt = buildOptimizeConfigPrompt(payload.currentConfig, payload.feedback);
+  console.log(`[PlaygroundOptimize] Prompt\n${prompt}`);
 
   const maxTokens = isThinkingModel(modelSelection) ? 8192 : 4096;
   const raw = await callModel(prompt, modelSelection, maxTokens, 0.2);
+  console.log(`[PlaygroundOptimize] Raw output\n${raw}`);
 
   if (!raw) {
     return NextResponse.json({ error: 'Empty response from AI' }, { status: 500 });
   }
 
-  const cleaned = cleanJsonObject(raw);
-  const parsed = safeParseJsonObject(cleaned);
+  const parsed = parseJsonObjectFromModelOutput(raw);
   if (!parsed) {
     return NextResponse.json({ error: 'Invalid optimization response format' }, { status: 502 });
   }
@@ -951,6 +917,8 @@ async function handlePlaygroundGrade(payload: {
   promptSlots?: EditablePromptSlots;
   styleOverrides?: Partial<FeedbackStyleConfig>;
   assessmentType?: 'flow' | 'bullets';
+  assessmentLength?: 'short' | 'medium' | 'long';
+  debugPrompt?: boolean;
   modelOverride?: string;
 }) {
   const graded = await gradePlaygroundParity(payload);
@@ -966,8 +934,18 @@ async function gradePlaygroundParity(payload: {
   promptSlots?: EditablePromptSlots;
   styleOverrides?: Partial<FeedbackStyleConfig>;
   assessmentType?: 'flow' | 'bullets';
+  assessmentLength?: 'short' | 'medium' | 'long';
+  debugPrompt?: boolean;
   modelOverride?: string;
-}): Promise<{ results: Array<Record<string, unknown>>; metadata: { mode: 'parity'; importable: boolean } }> {
+}): Promise<{
+  results: Array<Record<string, unknown>>;
+  metadata: {
+    mode: 'parity';
+    importable: boolean;
+    prompts?: Array<{ criterionName: string; prompt: string }>;
+    outputs?: Array<{ criterionName: string; output: string }>;
+  };
+}> {
   const modelSelection = resolveModelSelection(payload.modelOverride);
 
   if (!payload.essayText?.trim()) {
@@ -984,6 +962,12 @@ async function gradePlaygroundParity(payload: {
     styleOverrides: asFeedbackStyleOverrides(payload.styleOverrides),
   });
   const assessmentType = payload.assessmentType === 'bullets' ? 'bullets' : 'flow';
+  const assessmentLength =
+    payload.assessmentLength === 'short' || payload.assessmentLength === 'medium' || payload.assessmentLength === 'long'
+      ? payload.assessmentLength
+      : 'medium';
+  const promptDebugRows: Array<{ criterionName: string; prompt: string }> = [];
+  const outputDebugRows: Array<{ criterionName: string; output: string }> = [];
 
   const results: Array<Record<string, unknown>> = [];
   for (const criterion of criteria) {
@@ -994,14 +978,27 @@ async function gradePlaygroundParity(payload: {
         scoreMin: criterion.scoreRange.min,
         scoreMax: criterion.scoreRange.max,
         assessmentType,
-        assessmentLength: 'medium',
+        assessmentLength,
+        evidenceReferenceMode: 'text',
       },
       effective: effectivePromptConfig,
       cacheMode: 'non-cached',
     });
 
+    if (payload.debugPrompt) {
+      promptDebugRows.push({ criterionName: criterion.name, prompt });
+      console.log(`[PlaygroundGrade] Prompt for "${criterion.name}"\n${prompt}`);
+    }
+
     const maxTokens = isThinkingModel(modelSelection) ? 8192 : 4096;
     const raw = await callModel(prompt, modelSelection, maxTokens, 0.2);
+
+    if (payload.debugPrompt) {
+      const outputText = typeof raw === 'string' ? raw : '';
+      outputDebugRows.push({ criterionName: criterion.name, output: outputText });
+      console.log(`[PlaygroundGrade] Raw output for "${criterion.name}"\n${outputText}`);
+    }
+
     const cleaned = cleanJsonObject(raw);
     const parsed = safeParseJsonObject(cleaned);
 
@@ -1041,6 +1038,7 @@ async function gradePlaygroundParity(payload: {
     metadata: {
       mode: 'parity',
       importable: true,
+      ...(payload.debugPrompt ? { prompts: promptDebugRows, outputs: outputDebugRows } : {}),
     },
   };
 }
@@ -1052,15 +1050,19 @@ function buildConfigCriteriaForParity(config: Record<string, unknown>): Array<{ 
     .map((row) => {
       if (!isObject(row)) return null;
       const name = asString(row.name);
-      const minScore = asNumber(row.minScore);
-      const maxScore = asNumber(row.maxScore);
-      if (!name || minScore === null || maxScore === null) return null;
+      // Support new scoreRange format and legacy minScore/maxScore
+      let min: number | null = null;
+      let max: number | null = null;
+      if (isObject(row.scoreRange)) {
+        min = asNumber((row.scoreRange as Record<string, unknown>).min);
+        max = asNumber((row.scoreRange as Record<string, unknown>).max);
+      }
+      if (min === null) min = asNumber(row.minScore);
+      if (max === null) max = asNumber(row.maxScore);
+      if (!name || min === null || max === null) return null;
       return {
         name,
-        scoreRange: {
-          min: minScore,
-          max: maxScore,
-        },
+        scoreRange: { min, max },
       };
     })
     .filter((row): row is { name: string; scoreRange: { min: number; max: number } } => row !== null);
@@ -1088,6 +1090,7 @@ function toCompareResult(
       score,
       maxScore: criterion?.scoreRange.max ?? 0,
       feedback: feedbackParts.join(' '),
+      feedbackParts,
       evidenceQuotes,
     };
   });
@@ -1125,6 +1128,12 @@ async function handlePlaygroundCompareGrade(payload: {
       promptSlots: originalSlots,
       styleOverrides: asFeedbackStyleOverrides(payload.originalConfig.styleOverrides),
       assessmentType: payload.originalConfig.assessmentType === 'bullets' ? 'bullets' : 'flow',
+      assessmentLength:
+        payload.originalConfig.assessmentLength === 'short' ||
+        payload.originalConfig.assessmentLength === 'medium' ||
+        payload.originalConfig.assessmentLength === 'long'
+          ? payload.originalConfig.assessmentLength
+          : 'medium',
       modelOverride: payload.modelOverride,
     }),
     gradePlaygroundParity({
@@ -1133,6 +1142,12 @@ async function handlePlaygroundCompareGrade(payload: {
       promptSlots: revisedSlots,
       styleOverrides: asFeedbackStyleOverrides(payload.revisedConfig.styleOverrides),
       assessmentType: payload.revisedConfig.assessmentType === 'bullets' ? 'bullets' : 'flow',
+      assessmentLength:
+        payload.revisedConfig.assessmentLength === 'short' ||
+        payload.revisedConfig.assessmentLength === 'medium' ||
+        payload.revisedConfig.assessmentLength === 'long'
+          ? payload.revisedConfig.assessmentLength
+          : 'medium',
       modelOverride: payload.modelOverride,
     }),
   ]);

@@ -45,6 +45,7 @@ export interface CriterionPromptRuntimeData {
   contextDump?: Array<{ title: string; content: string }>;
   assessmentType: 'flow' | 'bullets';
   assessmentLength: 'short' | 'medium' | 'long';
+  evidenceReferenceMode?: 'page' | 'text';
 }
 
 export interface OverallPromptRuntimeData {
@@ -59,7 +60,7 @@ export interface OverallPromptRuntimeData {
 }
 
 export const DEFAULT_GRADING_SYSTEM_PROMPT =
-  'You are a rigorous, no-nonsense essay grader for a masters level course. You hold students to a high standard and do not give praise unless it is clearly warranted by the text. Avoid flattery, hedging, or softening language. If the essay is weak in an area, say so directly. If the essay is strong, acknowledge it briefly without exaggeration.\n\nYour assessment must reference the rubric criterion directly. Do NOT make the score obvious from your justification - a reader should not be able to guess the exact score from your commentary alone. Focus on what the essay does and does not achieve relative to the criterion.';
+  'You are a strict essay grader for a masters level course. Hold students to a high standard. If something is weak, say so plainly. If something is good, say so briefly. Do not use fancy language, filler words, or unnecessary adjectives. Write like you are talking to the student directly - short sentences, plain English.\n\nGRADING METHODOLOGY:\n1. Read the full essay before grading anything.\n2. For each criterion, check the essay against EVERY score level in the rubric (low to high). Find the level that fits best.\n3. Give the score of the closest matching level. If it falls between two levels, pick the nearer one - do not default to the middle.\n4. In your justification, point to specific rubric levels and say why the essay fits or does not fit them.\n5. Do NOT make the score obvious from your justification - the reader should not be able to guess the exact number.\n\nWRITING STYLE:\n- Use simple, direct English. No fancy words. No filler.\n- Say "the essay does X" not "the essay demonstrates a commendable ability to X".\n- Say "this is missing" not "there is a notable absence of".\n- Keep sentences short. One idea per sentence.\n\nEVIDENCE RULES:\n- Every quote MUST be copied EXACTLY from the essay. Do not change any words, fix grammar, or rephrase.\n- If you cannot find an exact quote, do not make one up.\n- Pick quotes that are specific to this criterion, not generic lines that could apply to anything.';
 
 export const LOCKED_PROMPT_SECTIONS: LockedPromptSections = {
   criterionJsonSchemaContract: `FORMAT YOUR RESPONSE AS A VALID JSON object:\n{\n  "justification": string | string[],\n  "evidence": [\n    {\n      "quote": "exact verbatim quote from essay - must be a complete sentence or clause, not just a few words",\n      "paragraph": "PAGE X, Section/Paragraph identifier",\n      "relatedAssessmentIndexes": [array of integers, optional]\n    },\n    ...\n  ],\n  "score": number\n}`,
@@ -101,8 +102,7 @@ const DEFAULT_STYLE: FeedbackStyleConfig = {
 const DEFAULT_SLOT_DRAFT: Required<EditablePromptSlots> = {
   criterionInstruction:
     'Interpret the criterion strictly against rubric intent and avoid generic comments.',
-  justificationStructureInstruction:
-    'Present justification as clear, criterion-tied reasoning grounded in the essay evidence.',
+  justificationStructureInstruction: '',
   lengthInstruction: getDefaultLengthInstruction(DEFAULT_STYLE.lengthPreset),
   toneInstruction: getDefaultToneInstruction(DEFAULT_STYLE.tonePreset),
   englishLevelInstruction: getDefaultEnglishInstruction(DEFAULT_STYLE.englishLevelPreset),
@@ -237,7 +237,6 @@ export function buildGradeSingleCriterionPrompt(args: {
   cacheMode: 'cached' | 'non-cached';
   locked?: LockedPromptSections;
 }): string {
-  const locked = args.locked || LOCKED_PROMPT_SECTIONS;
   const slots = args.effective.effectiveSlots;
 
   const justificationSchema =
@@ -245,7 +244,62 @@ export function buildGradeSingleCriterionPrompt(args: {
       ? '"justification": ["bullet point 1", "bullet point 2", ...],'
       : '"justification": "Your detailed justification without revealing the exact score",';
 
-  const modeIntro =
+  const justificationInstruction =
+    args.runtime.assessmentType === 'bullets'
+      ? 'Present your justification as bullet points. Return the justification as a JSON array of strings, where each string is a bullet point.'
+      : 'Present your justification as a coherent paragraph. Return the justification as a single string.';
+
+  const lengthInstruction =
+    args.runtime.assessmentLength === 'short'
+      ? args.runtime.assessmentType === 'bullets'
+        ? 'Keep it to 3-4 bullet points. Each bullet should be 1 sentence.'
+        : 'Keep the justification to 2-3 sentences total.'
+      : args.runtime.assessmentLength === 'medium'
+      ? args.runtime.assessmentType === 'bullets'
+        ? 'Use 4-6 bullet points. Each bullet should be 1-2 sentences.'
+        : 'Write 4-6 sentences in one paragraph.'
+      : args.runtime.assessmentType === 'bullets'
+      ? 'Use 6-8 bullet points. Each bullet can be 1-2 sentences with specific examples.'
+      : 'Write a detailed paragraph of 6-10 sentences with specific examples from the essay.';
+
+  const relateInstruction =
+    'For each evidence quote, indicate which sentences or bullet points from your justification it supports. Return the indexes (starting from 0) as a field "relatedAssessmentIndexes" in each evidence object. If the justification is a paragraph, treat each sentence as a unit (split on periods, exclamation marks, or question marks). If it\'s a list, use each bullet as a unit.';
+
+  const evidenceReferenceMode = args.runtime.evidenceReferenceMode || 'page';
+  const spreadInstruction =
+    evidenceReferenceMode === 'text'
+      ? '   - From DIFFERENT parts of the essay (spread across the full response)'
+      : '   - From DIFFERENT parts/pages of the essay (spread across the full document)';
+  const evidenceObjectSchemaLines =
+    evidenceReferenceMode === 'text'
+      ? ['      "quote": "EXACT verbatim text from essay - character-for-character copy"']
+      : [
+          '      "quote": "EXACT verbatim text from essay - character-for-character copy",',
+          '      "paragraph": "PAGE X, Section/Paragraph identifier",',
+          '      "relatedAssessmentIndexes": [array of integers, optional]',
+        ];
+  const evidenceLinkingInstruction =
+    evidenceReferenceMode === 'text'
+      ? '4. Return evidence as an array of quote objects with only the "quote" field.'
+      : `4. ${relateInstruction}`;
+
+  const additionalFeedbackInstructionLines: string[] = [];
+  if (slots.justificationStructureInstruction?.trim()) {
+    additionalFeedbackInstructionLines.push(`${slots.justificationStructureInstruction}`);
+  }
+  if (args.effective.style.tonePreset !== DEFAULT_STYLE.tonePreset) {
+    additionalFeedbackInstructionLines.push(`- Tone guidance: ${slots.toneInstruction}`);
+  }
+  if (args.effective.style.englishLevelPreset !== DEFAULT_STYLE.englishLevelPreset) {
+    additionalFeedbackInstructionLines.push(`- English level guidance: ${slots.englishLevelInstruction}`);
+  }
+
+  const additionalFeedbackInstruction =
+    additionalFeedbackInstructionLines.length > 0
+      ? ['ADDITIONAL FEEDBACK INSTRUCTIONS:', ...additionalFeedbackInstructionLines].join('\n')
+      : '';
+
+  const intro =
     args.cacheMode === 'cached'
       ? 'Grade the following criterion using the rubric provided in the cached context.'
       : DEFAULT_GRADING_SYSTEM_PROMPT;
@@ -253,21 +307,36 @@ export function buildGradeSingleCriterionPrompt(args: {
   const contextBlock = args.cacheMode === 'cached' ? '' : buildContextDump(args.runtime.contextDump);
 
   return [
-    modeIntro,
+    intro,
     contextBlock,
-    `ESSAY:\n${args.runtime.essayContent}`,
     `CRITERION: ${args.runtime.criterionName}`,
     `SCORE RANGE: ${args.runtime.scoreMin} to ${args.runtime.scoreMax}`,
-    `CRITERION INTERPRETATION GUIDANCE:\n${slots.criterionInstruction}`,
-    `JUSTIFICATION STRUCTURE GUIDANCE:\n${slots.justificationStructureInstruction}`,
-    `LENGTH GUIDANCE:\n${slots.lengthInstruction}`,
-    `TONE GUIDANCE:\n${slots.toneInstruction}`,
-    `ENGLISH LEVEL GUIDANCE:\n${slots.englishLevelInstruction}`,
-    locked.evidenceRequirements,
-    locked.scoreConstraints,
-    locked.criterionJsonSchemaContract.replace('"justification": string | string[],', justificationSchema),
-    locked.strictJsonOnlyRules,
-    locked.parserSafetyRules,
+    `ESSAY:\n${args.runtime.essayContent}`,
+    'INSTRUCTIONS:',
+    `1. First, evaluate the essay against EACH score level (${args.runtime.scoreMin} to ${args.runtime.scoreMax}) for this criterion. Determine which level the essay most closely matches.`,
+    `2. Write a justification that is balanced and critical. Reference specific rubric level descriptions to explain your reasoning. Do not reveal or hint at the exact score. ${justificationInstruction} ${lengthInstruction}`,
+    '3. Provide at least 5 VERBATIM quotes from the essay. CRITICAL: these must be EXACT copy-pastes from the essay - every word, space, and punctuation mark must match the original text exactly. Do NOT paraphrase, rephrase, reorder words, fix grammar, or alter the text in any way. If unsure of exact wording, use a shorter quote you are certain about.',
+    '   Evidence requirements:',
+    spreadInstruction,
+    '   - UNIQUE to this criterion - avoid generic quotes that could apply to any criterion',
+    '   - Include quotes showing both strengths AND weaknesses',
+    '   - Each quote must be at least one full sentence or meaningful clause',
+    evidenceLinkingInstruction,
+    `5. Assign your numerical score (${args.runtime.scoreMin}-${args.runtime.scoreMax}) - must correspond to the rubric level you identified in step 1.`,
+    ...(additionalFeedbackInstruction ? [`6. ${additionalFeedbackInstruction}`] : []),
+    'FORMAT YOUR RESPONSE AS A VALID JSON object:',
+    '{',
+    `  ${justificationSchema}`,
+    '  "evidence": [',
+    '    {',
+    ...evidenceObjectSchemaLines,
+    '    },',
+    '    ...',
+    '  ],',
+    '  "score": number',
+    '}',
+    'DO NOT include any explanatory text before or after the JSON object.',
+    'ONLY return the JSON object and nothing else.',
   ]
     .filter(Boolean)
     .join('\n\n');

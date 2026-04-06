@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { FileUp, Type, Loader2 } from 'lucide-react';
+import { FileUp, Type, Loader2, Sparkles } from 'lucide-react';
 import { extractTextFromPdf } from '@/lib/pdf-utils';
 import Modal from '@/components/ui/modal';
 
@@ -34,25 +34,155 @@ Criterion 4: Expectations & Conclusion
 - Needs Improvement (2): Expectations are vague and conclusion is weak. Limited summary of findings.
 - Insufficient (1): No clear expectations set and conclusion is missing or meaningless.`;
 
-type InputMode = 'paste' | 'upload';
+export type RubricInputMode = 'paste' | 'upload' | 'playground';
+
+const PLAYGROUND_SETS_STORAGE_KEY = 'prompt-playground-sets-v2';
+
+type PlaygroundCriterionLevel = {
+  score: number;
+  description: string;
+};
+
+type PlaygroundCriterion = {
+  name: string;
+  scoreRange: { min: number; max: number };
+  levels: PlaygroundCriterionLevel[];
+};
+
+type PlaygroundSet = {
+  id: string;
+  name: string;
+  updatedAt: string;
+  config?: {
+    criteria?: unknown[];
+  };
+};
 
 interface RubricModalProps {
   isOpen: boolean;
   onClose: () => void;
   rubricContent: string;
   onSave: (content: string) => void;
+  initialMode?: RubricInputMode;
 }
 
-export default function RubricModal({ isOpen, onClose, rubricContent, onSave }: RubricModalProps) {
+export default function RubricModal({ isOpen, onClose, rubricContent, onSave, initialMode = 'paste' }: RubricModalProps) {
   const [content, setContent] = useState(rubricContent);
-  const [mode, setMode] = useState<InputMode>('paste');
+  const [mode, setMode] = useState<RubricInputMode>(initialMode);
   const [isExtracting, setIsExtracting] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [playgroundSets, setPlaygroundSets] = useState<PlaygroundSet[]>([]);
+  const [selectedPlaygroundSetId, setSelectedPlaygroundSetId] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const parsePlaygroundCriteria = useCallback((rawCriteria: unknown[]): PlaygroundCriterion[] => {
+    return rawCriteria
+      .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .map((item) => {
+        const row = item as Record<string, unknown>;
+        const name = typeof row.name === 'string' ? row.name.trim() : '';
+
+        const rawScoreRange = row.scoreRange;
+        const scoreRange =
+          rawScoreRange && typeof rawScoreRange === 'object' && !Array.isArray(rawScoreRange)
+            ? {
+                min: Number((rawScoreRange as { min?: unknown }).min ?? 0),
+                max: Number((rawScoreRange as { max?: unknown }).max ?? 0),
+              }
+            : { min: 0, max: 0 };
+
+        const levels = Array.isArray(row.levels)
+          ? (row.levels as unknown[])
+              .filter((level) => level && typeof level === 'object' && !Array.isArray(level))
+              .map((level) => {
+                const levelRow = level as Record<string, unknown>;
+                return {
+                  score: Number(levelRow.score ?? NaN),
+                  description: typeof levelRow.description === 'string' ? levelRow.description.trim() : '',
+                };
+              })
+              .filter((level) => Number.isFinite(level.score) && level.description)
+          : [];
+
+        return {
+          name,
+          scoreRange,
+          levels,
+        } satisfies PlaygroundCriterion;
+      })
+      .filter((criterion) => criterion.name && criterion.levels.length > 0)
+      .map((criterion) => ({
+        ...criterion,
+        levels: [...criterion.levels].sort((a, b) => b.score - a.score),
+      }));
+  }, []);
+
+  const buildRubricTextFromPlaygroundCriteria = useCallback((criteria: PlaygroundCriterion[]): string => {
+    return criteria
+      .map((criterion, index) => {
+        const levelText = criterion.levels
+          .map((level) => `- Score ${level.score}: ${level.description}`)
+          .join('\n');
+        return `Criterion ${index + 1}: ${criterion.name}\n${levelText}`;
+      })
+      .join('\n\n');
+  }, []);
 
   useEffect(() => {
     setContent(rubricContent);
   }, [rubricContent]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setMode(initialMode);
+  }, [initialMode, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    try {
+      const raw = localStorage.getItem(PLAYGROUND_SETS_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as PlaygroundSet[]) : [];
+      const normalized = Array.isArray(parsed)
+        ? parsed
+            .filter((set) => set && typeof set === 'object')
+            .map((set) => ({
+              id: String((set as PlaygroundSet).id || ''),
+              name: String((set as PlaygroundSet).name || 'Untitled Prompt Set'),
+              updatedAt: String((set as PlaygroundSet).updatedAt || ''),
+              config: (set as PlaygroundSet).config,
+            }))
+            .filter((set) => set.id)
+        : [];
+
+      setPlaygroundSets(normalized);
+
+      if (normalized.length > 0) {
+        setSelectedPlaygroundSetId((current) => {
+          if (current && normalized.some((set) => set.id === current)) return current;
+          return normalized[0].id;
+        });
+      } else {
+        setSelectedPlaygroundSetId('');
+      }
+    } catch {
+      setPlaygroundSets([]);
+      setSelectedPlaygroundSetId('');
+    }
+  }, [isOpen]);
+
+  const selectedPlaygroundSet = playgroundSets.find((set) => set.id === selectedPlaygroundSetId) ?? null;
+  const selectedPlaygroundCriteria = selectedPlaygroundSet?.config?.criteria
+    ? parsePlaygroundCriteria(selectedPlaygroundSet.config.criteria)
+    : [];
+
+  const canImportFromPlayground = selectedPlaygroundCriteria.length > 0;
+
+  const handleImportFromPlayground = useCallback(() => {
+    if (!canImportFromPlayground) return;
+    const nextContent = buildRubricTextFromPlaygroundCriteria(selectedPlaygroundCriteria);
+    setContent(nextContent);
+  }, [buildRubricTextFromPlaygroundCriteria, canImportFromPlayground, selectedPlaygroundCriteria]);
 
   const handleSave = () => {
     onSave(content);
@@ -93,9 +223,10 @@ export default function RubricModal({ isOpen, onClose, rubricContent, onSave }: 
     [handlePdfUpload],
   );
 
-  const tabs: { id: InputMode; label: string; icon: React.ReactNode }[] = [
+  const tabs: { id: RubricInputMode; label: string; icon: React.ReactNode }[] = [
     { id: 'paste', label: 'Paste Text', icon: <Type className="h-4 w-4" /> },
     { id: 'upload', label: 'Upload PDF', icon: <FileUp className="h-4 w-4" /> },
+    { id: 'playground', label: 'Import Playground', icon: <Sparkles className="h-4 w-4" /> },
   ];
 
   return (
@@ -193,6 +324,79 @@ export default function RubricModal({ isOpen, onClose, rubricContent, onSave }: 
                   className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-[#1E1B4B] placeholder-gray-400 transition-colors focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 dark:border-slate-600 dark:bg-slate-800 dark:text-[#E2E8F0] dark:placeholder-slate-500 dark:focus:border-[#818CF8]"
                 />
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Import Playground mode */}
+        {mode === 'playground' && (
+          <div className="space-y-3">
+            {playgroundSets.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[var(--muted)]/30 bg-[var(--background)] px-4 py-6 text-center">
+                <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                  No playground prompt sets found.
+                </p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
+                  Create and save a rubric in Prompt Playground first, then return here to import it.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-[#1E1B4B] dark:text-[#E2E8F0]">
+                    Playground Prompt Set
+                  </label>
+                  <select
+                    value={selectedPlaygroundSetId}
+                    onChange={(e) => setSelectedPlaygroundSetId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-[#1E1B4B] focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 dark:border-slate-600 dark:bg-slate-800 dark:text-[#E2E8F0]"
+                  >
+                    {playgroundSets.map((set) => (
+                      <option key={set.id} value={set.id}>
+                        {set.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedPlaygroundSet?.updatedAt && (
+                    <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
+                      Last updated: {new Date(selectedPlaygroundSet.updatedAt).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--muted)' }}>
+                    Criteria Preview
+                  </p>
+                  {canImportFromPlayground ? (
+                    <div className="mt-2 space-y-2 text-sm" style={{ color: 'var(--foreground)' }}>
+                      {selectedPlaygroundCriteria.map((criterion, idx) => (
+                        <div key={`${criterion.name}-${idx}`}>
+                          <p className="font-medium">
+                            {idx + 1}. {criterion.name} ({criterion.scoreRange.min}-{criterion.scoreRange.max})
+                          </p>
+                          <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                            {criterion.levels.length} level{criterion.levels.length === 1 ? '' : 's'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>
+                      The selected prompt set does not have a valid rubric yet.
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleImportFromPlayground}
+                  disabled={!canImportFromPlayground}
+                  className="cursor-pointer rounded-lg bg-[#6366F1] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5558E6] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Import selected rubric into editor
+                </button>
+              </>
             )}
           </div>
         )}

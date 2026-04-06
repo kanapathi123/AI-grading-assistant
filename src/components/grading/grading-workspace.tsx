@@ -9,6 +9,8 @@ import {
   ChevronRight,
   Play,
   Check,
+  Trash2,
+  Sparkles,
 } from 'lucide-react';
 import type {
   Criterion,
@@ -34,7 +36,6 @@ import type { CsvRecorder } from '@/lib/csv-recorder';
 import WelcomeSection from '@/components/grading/welcome-section';
 import EssayUpload from '@/components/grading/essay-upload';
 import AssessmentSettings from '@/components/grading/assessment-settings';
-import RubricModal from '@/components/grading/rubric-modal';
 import RubricPreview from '@/components/grading/rubric-preview';
 import ContextDialog from '@/components/grading/context-dialog';
 import InteractiveGrading from '@/components/grading/interactive-grading';
@@ -46,6 +47,29 @@ import InteractiveGrading from '@/components/grading/interactive-grading';
 export interface GradingWorkspaceProps {
   recorder: CsvRecorder;
 }
+
+type PlaygroundCriterionLevel = {
+  score: number;
+  description: string;
+};
+
+type PlaygroundCriterion = {
+  name: string;
+  scoreRange: { min: number; max: number };
+  levels: PlaygroundCriterionLevel[];
+};
+
+type PlaygroundSet = {
+  id: string;
+  name: string;
+  updatedAt: string;
+  config?: {
+    criteria?: unknown[];
+    feedbackInstructionText?: string;
+  };
+};
+
+const PLAYGROUND_SETS_STORAGE_KEY = 'prompt-playground-sets-v2';
 
 /* -------------------------------------------------------------------------- */
 /*  Step indicator                                                             */
@@ -162,6 +186,186 @@ const slideVariants = {
   exit: { opacity: 0, x: -40, transition: { duration: 0.15 } },
 };
 
+const EXAMPLE_RUBRIC_CRITERIA: Criterion[] = [
+  {
+    id: 1, name: 'System Design',
+    scoreRange: { min: 1, max: 5 },
+    levels: [
+      { score: 5, description: 'Demonstrates a comprehensive and well-justified system design. All components are clearly defined, logically connected, and appropriate for the problem scope. Trade-offs are discussed thoughtfully.' },
+      { score: 4, description: 'Presents a solid system design with most components well-defined. Minor gaps in justification or connectivity between components.' },
+      { score: 3, description: 'Provides an adequate system design. Some components may be underdeveloped or lack clear justification. Connections between components are present but not fully articulated.' },
+      { score: 2, description: 'System design is incomplete or poorly justified. Key components are missing or not logically connected.' },
+      { score: 1, description: 'No meaningful system design is presented, or the design is fundamentally flawed.' },
+    ],
+  },
+  {
+    id: 2, name: 'Tools',
+    scoreRange: { min: 1, max: 5 },
+    levels: [
+      { score: 5, description: 'Selects and applies highly appropriate tools and technologies for the task. Justifies tool choices with clear reasoning and demonstrates deep understanding of their capabilities and limitations.' },
+      { score: 4, description: 'Uses appropriate tools with reasonable justification. Demonstrates good understanding of tool capabilities.' },
+      { score: 3, description: 'Tools are adequate but choices may not be fully justified. Some understanding of tool capabilities demonstrated.' },
+      { score: 2, description: 'Tool selection is questionable or poorly justified. Limited understanding of tool capabilities shown.' },
+      { score: 1, description: 'Tools are inappropriate for the task or no tools are discussed.' },
+    ],
+  },
+  {
+    id: 3, name: 'Process Reflection',
+    scoreRange: { min: 1, max: 5 },
+    levels: [
+      { score: 5, description: 'Provides deep and insightful reflection on the development process. Clearly identifies challenges, decisions, and lessons learned. Demonstrates critical thinking about what worked and what could be improved.' },
+      { score: 4, description: 'Offers meaningful reflection with identification of key challenges and decisions. Some critical analysis present.' },
+      { score: 3, description: 'Reflection is present but surface-level. Identifies some challenges but lacks depth in analysis.' },
+      { score: 2, description: 'Minimal reflection provided. Few challenges or decisions are discussed.' },
+      { score: 1, description: 'No meaningful reflection on the process is provided.' },
+    ],
+  },
+  {
+    id: 4, name: 'Expectations & Conclusion',
+    scoreRange: { min: 1, max: 5 },
+    levels: [
+      { score: 5, description: 'Sets clear expectations and provides a compelling conclusion. Effectively summarizes key findings, acknowledges limitations, and outlines future directions with specificity.' },
+      { score: 4, description: 'Expectations are clear and conclusion is well-structured. Most key points are summarized with some discussion of limitations and future work.' },
+      { score: 3, description: 'Expectations and conclusion are present but may lack clarity or completeness. Some summary of findings provided.' },
+      { score: 2, description: 'Expectations are vague and conclusion is weak. Limited summary of findings.' },
+      { score: 1, description: 'No clear expectations set and conclusion is missing or meaningless.' },
+    ],
+  },
+];
+
+/* -------------------------------------------------------------------------- */
+/*  RubricTable component                                                      */
+/* -------------------------------------------------------------------------- */
+
+function RubricTable({
+  criteria,
+  onChange,
+}: {
+  criteria: Criterion[];
+  onChange: (next: Criterion[]) => void;
+}) {
+  const addCriterion = () => {
+    onChange([
+      ...criteria,
+      {
+        id: criteria.length > 0 ? Math.max(...criteria.map((c) => c.id)) + 1 : 1,
+        name: '',
+        scoreRange: { min: 0, max: 3 },
+        levels: [{ score: 3, description: '' }, { score: 2, description: '' }, { score: 1, description: '' }, { score: 0, description: '' }],
+      },
+    ]);
+  };
+
+  const removeCriterion = (id: number) => {
+    onChange(criteria.filter((c) => c.id !== id));
+  };
+
+  const updateCriterion = (id: number, patch: Partial<Criterion>) => {
+    onChange(
+      criteria.map((c) => {
+        if (c.id !== id) return c;
+        const next = { ...c, ...patch };
+        if ('scoreRange' in patch) {
+          const { min, max } = next.scoreRange;
+          const existingLevels = next.levels;
+          const newLevels = [];
+          for (let score = max; score >= min; score -= 1) {
+            const existing = existingLevels.find((l) => l.score === score);
+            newLevels.push({ score, description: existing?.description ?? '' });
+          }
+          next.levels = newLevels;
+        }
+        return next;
+      })
+    );
+  };
+
+  const updateLevel = (id: number, score: number, value: string) => {
+    onChange(criteria.map((c) => (c.id === id ? { ...c, levels: c.levels.map((l) => l.score === score ? { ...l, description: value } : l) } : c)));
+  };
+
+  return (
+    <div className="space-y-4">
+      {criteria.map((criterion) => (
+        <div key={criterion.id} className="space-y-2 py-3">
+          <div className="mb-3 flex items-center gap-2">
+            <input
+              value={criterion.name}
+              onChange={(e) => updateCriterion(criterion.id, { name: e.target.value })}
+              placeholder="Criterion name"
+              className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+            <input
+              type="number"
+              min={0}
+              value={criterion.scoreRange.min}
+              onChange={(e) => updateCriterion(criterion.id, { scoreRange: { ...criterion.scoreRange, min: Number(e.target.value) } })}
+              className="w-14 rounded-lg border border-slate-200 bg-white px-2 py-2 text-center text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              title="Min score"
+            />
+            <input
+              type="number"
+              min={1}
+              value={criterion.scoreRange.max}
+              onChange={(e) => updateCriterion(criterion.id, { scoreRange: { ...criterion.scoreRange, max: Number(e.target.value) } })}
+              className="w-14 rounded-lg border border-slate-200 bg-white px-2 py-2 text-center text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              title="Max score"
+            />
+            <button
+              onClick={() => removeCriterion(criterion.id)}
+              className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500"
+              title="Remove criterion"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs text-slate-600">
+                <tr>
+                  <th className="w-16 border-r border-slate-200 py-2 text-center">Score</th>
+                  <th className="px-3 py-2 text-left">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...criterion.levels]
+                  .sort((a, b) => b.score - a.score)
+                  .map((level) => (
+                    <tr key={level.score} className="border-t border-slate-200 bg-white">
+                      <td className="border-r border-slate-200 py-2 text-center font-semibold text-slate-700">
+                        {level.score}
+                      </td>
+                      <td className="p-2">
+                        <textarea
+                          rows={2}
+                          value={level.description}
+                          onChange={(e) => updateLevel(criterion.id, level.score, e.target.value)}
+                          placeholder={`Description for score ${level.score}`}
+                          className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+
+      <div>
+        <button
+          onClick={addCriterion}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-2 text-sm text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+        >
+          <Plus className="h-4 w-4" />
+          Add Criterion
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Component                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -174,8 +378,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
   const [essayFile, setEssayFile] = useState<string | null>(null);
   const [essayFileName, setEssayFileName] = useState<string | null>(null);
   const [pdfContent, setPdfContent] = useState<string>('');
-  const [rubricContent, setRubricContent] = useState<string>('');
-  const [rubricCriteria, setRubricCriteria] = useState<Criterion[]>([]);
+  const [rubricCriteria, setRubricCriteria] = useState<Criterion[]>([
+    { id: 1, name: '', scoreRange: { min: 0, max: 3 }, levels: [{ score: 3, description: '' }, { score: 2, description: '' }, { score: 1, description: '' }, { score: 0, description: '' }] },
+  ]);
   const [criteriaAssessments, setCriteriaAssessments] = useState<Record<string, Assessment>>({});
 
   /* ---- grading navigation state ---- */
@@ -190,10 +395,14 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
   const [assessmentType, setAssessmentType] = useState<AssessmentType>('flow');
   const [assessmentLength, setAssessmentLength] = useState<AssessmentLength>('medium');
   const [hallucinationThreshold, setHallucinationThreshold] = useState<HallucinationThreshold>('medium');
+  const [additionalInstructions, setAdditionalInstructions] = useState<string>('');
 
   /* ---- UI state ---- */
   const [isProcessingRubric, setIsProcessingRubric] = useState<boolean>(false);
-  const [showRubricModal, setShowRubricModal] = useState<boolean>(false);
+  const [rubricCreationMode, setRubricCreationMode] = useState<'manual' | 'import'>('manual');
+  const [playgroundSets, setPlaygroundSets] = useState<PlaygroundSet[]>([]);
+  const [selectedPlaygroundSetId, setSelectedPlaygroundSetId] = useState<string>('');
+  const [settingsSelectedSetId, setSettingsSelectedSetId] = useState<string>('');
   const [showContextDialog, setShowContextDialog] = useState<boolean>(false);
 
   /* ---- timing ---- */
@@ -213,6 +422,57 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
   /* ---- ref to prevent duplicate grading ---- */
   const gradingInProgress = useRef<Set<number>>(new Set());
 
+  const parsePlaygroundCriteria = useCallback((rawCriteria: unknown[]): PlaygroundCriterion[] => {
+    return rawCriteria
+      .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+      .map((item) => {
+        const row = item as Record<string, unknown>;
+        const name = typeof row.name === 'string' ? row.name.trim() : '';
+
+        const rawScoreRange = row.scoreRange;
+        const scoreRange =
+          rawScoreRange && typeof rawScoreRange === 'object' && !Array.isArray(rawScoreRange)
+            ? {
+                min: Number((rawScoreRange as { min?: unknown }).min ?? 0),
+                max: Number((rawScoreRange as { max?: unknown }).max ?? 0),
+              }
+            : { min: 0, max: 0 };
+
+        const levels = Array.isArray(row.levels)
+          ? (row.levels as unknown[])
+              .filter((level) => level && typeof level === 'object' && !Array.isArray(level))
+              .map((level) => {
+                const levelRow = level as Record<string, unknown>;
+                return {
+                  score: Number(levelRow.score ?? NaN),
+                  description: typeof levelRow.description === 'string' ? levelRow.description.trim() : '',
+                };
+              })
+              .filter((level) => Number.isFinite(level.score) && level.description)
+          : [];
+
+        return {
+          name,
+          scoreRange,
+          levels,
+        } satisfies PlaygroundCriterion;
+      })
+      .filter((criterion) => criterion.name && criterion.levels.length > 0)
+      .map((criterion) => ({
+        ...criterion,
+        levels: [...criterion.levels].sort((a, b) => b.score - a.score),
+      }));
+  }, []);
+
+  const convertPlaygroundCriteriaToEditable = useCallback((criteria: PlaygroundCriterion[]): Criterion[] => {
+    return criteria.map((criterion, index) => ({
+      id: index + 1,
+      name: criterion.name,
+      scoreRange: criterion.scoreRange,
+      levels: criterion.levels,
+    }));
+  }, []);
+
   /* -------------------------------------------------------------------------- */
   /*  PDF extraction — auto-extract when essayFile changes                      */
   /* -------------------------------------------------------------------------- */
@@ -226,6 +486,48 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     })();
     return () => { cancelled = true; };
   }, [essayFile]);
+
+  useEffect(() => {
+    if (currentStep !== 'rubric' && currentStep !== 'settings') return;
+
+    try {
+      const raw = localStorage.getItem(PLAYGROUND_SETS_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as PlaygroundSet[]) : [];
+      const normalized = Array.isArray(parsed)
+        ? parsed
+            .filter((set) => set && typeof set === 'object')
+            .map((set) => ({
+              id: String((set as PlaygroundSet).id || ''),
+              name: String((set as PlaygroundSet).name || 'Untitled Prompt Set'),
+              updatedAt: String((set as PlaygroundSet).updatedAt || ''),
+              config: (set as PlaygroundSet).config,
+            }))
+            .filter((set) => set.id)
+        : [];
+
+      setPlaygroundSets(normalized);
+      if (normalized.length > 0) {
+        setSelectedPlaygroundSetId((current) => {
+          if (current && normalized.some((set) => set.id === current)) return current;
+          return normalized[0].id;
+        });
+        const instructionSets = normalized.filter(
+          (set) => typeof set.config?.feedbackInstructionText === 'string' && set.config.feedbackInstructionText.trim()
+        );
+        setSettingsSelectedSetId((current) => {
+          if (current && instructionSets.some((set) => set.id === current)) return current;
+          return instructionSets[0]?.id ?? '';
+        });
+      } else {
+        setSelectedPlaygroundSetId('');
+        setSettingsSelectedSetId('');
+      }
+    } catch {
+      setPlaygroundSets([]);
+      setSelectedPlaygroundSetId('');
+      setSettingsSelectedSetId('');
+    }
+  }, [currentStep]);
 
   /* -------------------------------------------------------------------------- */
   /*  gradeCurrentCriterion                                                      */
@@ -287,20 +589,14 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
   /* -------------------------------------------------------------------------- */
 
   const startInteractiveGrading = useCallback(async () => {
-    if (!pdfContent || !rubricContent) {
-      console.error('PDF content and rubric content are required to start grading.');
+    if (!pdfContent || !rubricCriteria.some((c) => c.name.trim())) {
+      console.error('PDF content and rubric criteria are required to start grading.');
       return;
     }
 
     setIsProcessingRubric(true);
 
     try {
-      const criteria = await extractRubricCriteria(rubricContent);
-      if (criteria === 'NO_VALID_RUBRIC') {
-        console.error('Could not extract valid rubric criteria.');
-        return;
-      }
-      setRubricCriteria(criteria);
       setCurrentCriterionIndex(0);
       setCriterionStartTime(Date.now());
       setCriteriaAssessments({});
@@ -310,24 +606,14 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
       setOverallAssessment(null);
       setCurrentStep('grading');
 
-      /* Create context cache for rubric+essay reuse (non-blocking) */
-      if (!cacheName) {
-        createRubricCache(rubricContent, contextList).then(({ cacheName: name }) => {
-          if (name) {
-            console.log('Rubric cache created:', name);
-            setCacheName(name);
-          }
-        }).catch(() => { /* cache is optional */ });
-      }
-
       /* start grading the first criterion */
-      await gradeCurrentCriterion(criteria, 0);
+      await gradeCurrentCriterion(rubricCriteria, 0);
     } catch (err) {
       console.error('Error starting interactive grading:', err);
     } finally {
       setIsProcessingRubric(false);
     }
-  }, [pdfContent, rubricContent, contextList, cacheName, gradeCurrentCriterion]);
+  }, [pdfContent, rubricCriteria, gradeCurrentCriterion]);
 
   /* -------------------------------------------------------------------------- */
   /*  handleTeacherScoreInput                                                    */
@@ -517,8 +803,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     setEssayFile(null);
     setEssayFileName(null);
     setPdfContent('');
-    setRubricContent('');
-    setRubricCriteria([]);
+    setRubricCriteria([
+      { id: 1, name: '', scoreRange: { min: 0, max: 3 }, levels: [{ score: 3, description: '' }, { score: 2, description: '' }, { score: 1, description: '' }, { score: 0, description: '' }] },
+    ]);
     setCriteriaAssessments({});
     setCurrentCriterionIndex(0);
     setTeacherScores({});
@@ -529,8 +816,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     setAssessmentType('flow');
     setAssessmentLength('medium');
     setHallucinationThreshold('medium');
+    setAdditionalInstructions('');
+    setSettingsSelectedSetId('');
     setIsProcessingRubric(false);
-    setShowRubricModal(false);
     setShowContextDialog(false);
     setCriterionStartTime(null);
     setActivePdfEvidence(null);
@@ -594,13 +882,23 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
   );
 
   /* -------------------------------------------------------------------------- */
-  /*  Rubric save handler                                                        */
+  /*  Rubric operations                                                          */
   /* -------------------------------------------------------------------------- */
 
-  const handleRubricSave = useCallback((content: string) => {
-    setRubricContent(content);
-    setShowRubricModal(false);
-  }, []);
+  const selectedPlaygroundSet = playgroundSets.find((set) => set.id === selectedPlaygroundSetId) ?? null;
+  const playgroundSetsWithInstructions = playgroundSets.filter(
+    (set) => typeof set.config?.feedbackInstructionText === 'string' && set.config.feedbackInstructionText.trim()
+  );
+  const selectedPlaygroundCriteria = selectedPlaygroundSet?.config?.criteria
+    ? parsePlaygroundCriteria(selectedPlaygroundSet.config.criteria)
+    : [];
+  const canImportFromPlayground = selectedPlaygroundCriteria.length > 0;
+
+  const importRubricFromPlayground = useCallback(() => {
+    if (!canImportFromPlayground) return;
+    const editableCriteria = convertPlaygroundCriteriaToEditable(selectedPlaygroundCriteria);
+    setRubricCriteria(editableCriteria);
+  }, [convertPlaygroundCriteriaToEditable, canImportFromPlayground, selectedPlaygroundCriteria]);
 
   /* -------------------------------------------------------------------------- */
   /*  RENDER                                                                     */
@@ -632,57 +930,106 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
               <StepContainer
                 onBack={() => setCurrentStep('welcome')}
                 onNext={() => setCurrentStep('essay')}
-                nextDisabled={!rubricContent.trim()}
+                nextDisabled={!rubricCriteria.some((c) => c.name.trim())}
               >
                 <div className="space-y-4">
                   <div>
                     <h2 className="text-xl font-bold" style={{ color: 'var(--foreground)' }}>
-                      Upload Grading Rubric
+                      Create Grading Rubric
                     </h2>
                     <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-                      Paste your rubric text or upload a rubric PDF. The AI will extract criteria and scoring levels.
+                      Define your rubric criteria with scoring levels.
                     </p>
                   </div>
 
-                  {rubricContent ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-900/20">
-                        <div className="flex items-center gap-3">
-                          <Check className="h-5 w-5 text-emerald-500" />
-                          <span className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                            Rubric loaded ({rubricContent.length} characters)
-                          </span>
-                        </div>
+                  {/* Tabs */}
+                  <div className="flex gap-2 border-b border-[var(--card-border)]">
+                    <button
+                      onClick={() => setRubricCreationMode('manual')}
+                      className={`px-4 py-2.5 text-sm font-medium transition-colors ${
+                        rubricCreationMode === 'manual'
+                          ? 'border-b-2 border-[#6366F1] text-[#6366F1]'
+                          : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      Create Manually
+                    </button>
+                    {playgroundSets.length > 0 && (
+                      <button
+                        onClick={() => setRubricCreationMode('import')}
+                        className={`px-4 py-2.5 text-sm font-medium transition-colors ${
+                          rubricCreationMode === 'import'
+                            ? 'border-b-2 border-[#6366F1] text-[#6366F1]'
+                            : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+                        }`}
+                      >
+                        Import from Playground
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Tab Content */}
+                  {rubricCreationMode === 'manual' && (
+                    <div className="space-y-4">
+                      <div className="flex justify-end">
                         <button
-                          onClick={() => setShowRubricModal(true)}
-                          className="cursor-pointer text-sm font-medium text-[#6366F1] transition-colors hover:text-[#818CF8]"
+                          type="button"
+                          onClick={() => setRubricCriteria(EXAMPLE_RUBRIC_CRITERIA.map((c) => ({ ...c, levels: c.levels.map((l) => ({ ...l })) })))}
+                          className="flex items-center gap-1.5 rounded-md border border-dashed border-[#6366F1] px-3 py-1.5 text-xs font-medium text-[#6366F1] hover:bg-[#6366F1]/10"
                         >
-                          Edit Rubric
+                          Load Example
                         </button>
                       </div>
-                      <div className="max-h-48 overflow-y-auto rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] p-4">
-                        <pre className="whitespace-pre-wrap text-xs" style={{ color: 'var(--muted)' }}>
-                          {rubricContent.slice(0, 800)}
-                          {rubricContent.length > 800 && '...'}
-                        </pre>
-                      </div>
+                      <RubricTable criteria={rubricCriteria} onChange={setRubricCriteria} />
                     </div>
-                  ) : (
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => setShowRubricModal(true)}
-                        className="flex flex-1 cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed border-[var(--muted)]/30 px-6 py-10 transition-colors duration-200 hover:border-indigo-400 hover:bg-indigo-500/5"
-                      >
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-indigo-500/10">
-                          <Plus className="h-6 w-6 text-indigo-500" />
+                  )}
+
+                  {rubricCreationMode === 'import' && playgroundSets.length > 0 && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                          Select Playground Prompt Set
+                        </label>
+                        <select
+                          value={selectedPlaygroundSetId}
+                          onChange={(e) => setSelectedPlaygroundSetId(e.target.value)}
+                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-[#1E1B4B] focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 dark:border-slate-600 dark:bg-slate-800 dark:text-[#E2E8F0]"
+                        >
+                          {playgroundSets.map((set) => (
+                            <option key={set.id} value={set.id}>
+                              {set.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {canImportFromPlayground && (
+                        <>
+                          <div>
+                            <p className="mb-3 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--muted)' }}>
+                              Preview ({selectedPlaygroundCriteria.length} criteria)
+                            </p>
+                            <RubricTable 
+                              criteria={convertPlaygroundCriteriaToEditable(selectedPlaygroundCriteria)} 
+                              onChange={() => {}} 
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={importRubricFromPlayground}
+                            className="w-full cursor-pointer rounded-lg bg-[#6366F1] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#5558E6]"
+                          >
+                            Import Selected Criteria
+                          </button>
+                        </>
+                      )}
+
+                      {!canImportFromPlayground && (
+                        <div className="rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] p-4 text-center">
+                          <p style={{ color: 'var(--muted)' }}>No valid criteria to import from this set.</p>
                         </div>
-                        <span className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                          Add Rubric
-                        </span>
-                        <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                          Paste text or upload PDF
-                        </span>
-                      </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -731,7 +1078,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
                 onBack={() => setCurrentStep('essay')}
                 onNext={startInteractiveGrading}
                 nextLabel="Start Grading"
-                nextDisabled={!pdfContent || !rubricContent}
+                nextDisabled={!pdfContent || !rubricCriteria.some((c) => c.name.trim())}
                 nextIcon={<Play className="h-4 w-4" />}
               >
                 <div className="space-y-6">
@@ -753,21 +1100,51 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
                     setHallucinationThreshold={setHallucinationThreshold}
                   />
 
-                  {/* Rubric Criteria Preview */}
-                  {rubricContent && (
-                    <div>
-                      <h3 className="mb-3 text-sm font-semibold text-[#1E1B4B] dark:text-[#E2E8F0]">
-                        Rubric Criteria
+                  {/* Additional Instructions */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+                        Additional Instruction
                       </h3>
-                      <RubricPreview
-                        rubricContent={rubricContent}
-                        onStartGrading={() => {}}
-                        onReviseRubric={() => setCurrentStep('rubric')}
-                        pdfUploaded={!!essayFile}
-                        hideStartButton
-                      />
+                      {playgroundSetsWithInstructions.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={settingsSelectedSetId}
+                            onChange={(e) => setSettingsSelectedSetId(e.target.value)}
+                            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-[#1E1B4B] focus:border-[#6366F1] focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-[#E2E8F0]"
+                          >
+                            {playgroundSetsWithInstructions.map((set) => (
+                              <option key={set.id} value={set.id}>
+                                {set.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const set = playgroundSetsWithInstructions.find((s) => s.id === settingsSelectedSetId);
+                              const text = set?.config?.feedbackInstructionText;
+                              if (typeof text === 'string' && text.trim()) {
+                                setAdditionalInstructions(text);
+                              } else {
+                                alert('The selected playground set has no Additional Instruction saved.');
+                              }
+                            }}
+                            className="rounded-md border border-[#6366F1] px-2 py-1 text-xs font-medium text-[#6366F1] hover:bg-[#6366F1]/10"
+                          >
+                            Import from Playground
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  )}
+                    <textarea
+                      value={additionalInstructions}
+                      onChange={(e) => setAdditionalInstructions(e.target.value)}
+                      placeholder="Add any additional instructions for the AI grader..."
+                      rows={4}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-[#1E1B4B] placeholder-gray-400 focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 dark:border-slate-600 dark:bg-slate-800 dark:text-[#E2E8F0] dark:placeholder-slate-500"
+                    />
+                  </div>
 
                   {/* Context */}
                   <div>
@@ -802,7 +1179,6 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
               <InteractiveGrading
                 pdfFile={essayFile}
                 pdfContent={pdfContent}
-                rubricContent={rubricContent}
                 rubricCriteria={rubricCriteria}
                 criteriaAssessments={criteriaAssessments}
                 currentCriterionIndex={currentCriterionIndex}
@@ -867,16 +1243,6 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
           onClose={() => setShowContextDialog(false)}
           contextList={contextList}
           setContextList={setContextList}
-        />
-      )}
-
-      {/* Rubric Modal */}
-      {showRubricModal && (
-        <RubricModal
-          isOpen={showRubricModal}
-          onClose={() => setShowRubricModal(false)}
-          rubricContent={rubricContent}
-          onSave={handleRubricSave}
         />
       )}
     </div>

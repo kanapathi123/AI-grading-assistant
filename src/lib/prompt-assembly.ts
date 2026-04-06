@@ -1,20 +1,14 @@
 // Ported from prompt-craft/src/lib/promptAssembly.ts
-// Pure functions — no external dependencies
+import type { Criterion } from '@/types';
 
-export interface RubricCriterion {
-  id: string;
-  name: string;
-  minScore: number;
-  maxScore: number;
-  levels: Record<string, string>;
-}
+export type RubricCriterion = Criterion;
 
 export interface PromptConfig {
   academicLevel: string;
   subject: string;
   assignmentDesc: string;
   feedbackText: string;
-  criteria: RubricCriterion[];
+  criteria: Criterion[];
   additionalMaterial?: string;
   showAdditionalMaterial?: boolean;
   additionalDescription?: string;
@@ -33,22 +27,20 @@ export interface FewShotExample {
   };
 }
 
-function buildRubricJson(criteria: RubricCriterion[]) {
+function buildRubricJson(criteria: Criterion[]) {
   return {
     criteria: criteria.map((c) => {
-      const levels =
-        c.levels && typeof c.levels === 'object'
-          ? c.levels
-          : (() => {
-              const generated: Record<string, string> = {};
-              const min = Number(c.minScore ?? 0);
-              const max = Number(c.maxScore ?? 3);
-              for (let score = max; score >= min; score -= 1) {
-                generated[String(score)] = `Score ${score} description`;
-              }
-              return generated;
-            })();
-      return { name: c.name, minScore: c.minScore, maxScore: c.maxScore, levels };
+      const levelsObj: Record<string, string> = {};
+      if (Array.isArray(c.levels)) {
+        c.levels.forEach((l) => { levelsObj[String(l.score)] = l.description; });
+      } else {
+        const min = c.scoreRange?.min ?? 0;
+        const max = c.scoreRange?.max ?? 3;
+        for (let score = max; score >= min; score -= 1) {
+          levelsObj[String(score)] = `Score ${score} description`;
+        }
+      }
+      return { name: c.name, minScore: c.scoreRange.min, maxScore: c.scoreRange.max, levels: levelsObj };
     }),
   };
 }
@@ -187,9 +179,9 @@ export function validatePromptConfig(
   } else {
     config.criteria.forEach((c, idx) => {
       if (!String(c.name ?? '').trim()) errors.push(`Criterion ${idx + 1}: Name is required`);
-      if ((c.maxScore ?? 0) <= 0) errors.push(`Criterion ${idx + 1}: Max score must be > 0`);
-      if ((c.minScore ?? 0) < 0) errors.push(`Criterion ${idx + 1}: Min score cannot be negative`);
-      if ((c.minScore ?? 0) >= (c.maxScore ?? 0))
+      if ((c.scoreRange?.max ?? 0) <= 0) errors.push(`Criterion ${idx + 1}: Max score must be > 0`);
+      if ((c.scoreRange?.min ?? 0) < 0) errors.push(`Criterion ${idx + 1}: Min score cannot be negative`);
+      if ((c.scoreRange?.min ?? 0) >= (c.scoreRange?.max ?? 0))
         errors.push(`Criterion ${idx + 1}: Min score must be less than max score`);
     });
   }

@@ -31,7 +31,6 @@ export interface InteractiveGradingProps {
   /* data */
   pdfFile: string | null;
   pdfContent: string;
-  rubricContent: string;
   rubricCriteria: Criterion[];
   criteriaAssessments: Record<string, Assessment>;
   currentCriterionIndex: number;
@@ -77,7 +76,6 @@ export interface InteractiveGradingProps {
 export default function InteractiveGrading({
   pdfFile,
   pdfContent,
-  rubricContent,
   rubricCriteria,
   criteriaAssessments,
   currentCriterionIndex,
