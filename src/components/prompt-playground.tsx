@@ -7,8 +7,11 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Download,
   FileText,
+  Files,
   FlaskConical,
+  History,
   Info,
   Loader2,
   MessageSquare,
@@ -17,6 +20,7 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  RefreshCw,
   Save,
   Search,
   Sparkles,
@@ -39,6 +43,8 @@ import {
 } from '@/lib/grading-prompt-system';
 import {
   comparePlaygroundGrades,
+  createPlaygroundCache,
+  deletePlaygroundCache,
   gradePlaygroundWithConfig,
   optimizePlaygroundConfig,
 } from '@/lib/gemini-service';
@@ -229,6 +235,11 @@ type OptimizationIteration = {
   baselineVersionId: string | null;
   baselineConfig: BuilderPromptConfig;
   revisedConfig: BuilderPromptConfig;
+  importedToBuilder?: boolean;
+  comparisonResults?: {
+    baseline: TestResult[];
+    revised: TestResult[];
+  };
 };
 
 type IterationComparison = {
@@ -1617,13 +1628,17 @@ export default function PromptPlayground() {
 
   const [essays, setEssays] = useState<EssayItem[]>(makeDefaultEssays);
   const [gradingLoading, setGradingLoading] = useState(false);
+  const [gradingProgressRuns, setGradingProgressRuns] = useState({ done: 0, total: 0 });
+  const [gradingProgressBar, setGradingProgressBar] = useState({ done: 0, total: 0 });
   const [gradingError, setGradingError] = useState<string | null>(null);
-  const [runResultsByEssay, setRunResultsByEssay] = useState<TestResult[][][]>([]);
+  const [runResultsByMode, setRunResultsByMode] = useState<Record<string, TestResult[][][]>>({});
   const [runMetadata, setRunMetadata] = useState<RunMetadata | null>(null);
   const [runConfig, setRunConfig] = useState<BuilderPromptConfig | null>(null);
   const [resultsTab, setResultsTab] = useState<'graph' | 'results'>('results');
   const [runCount, setRunCount] = useState(1);
   const [runMenuOpen, setRunMenuOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [gradingMode, setGradingMode] = useState<'single' | 'compare' | 'consistency'>('single');
   const [configCollapsed, setConfigCollapsed] = useState(false);
 
   const [optimizerGoal, setOptimizerGoal] = useState('');
@@ -1650,12 +1665,14 @@ export default function PromptPlayground() {
     [promptSets, activeSetId]
   );
 
+  const runResultsByEssay = runResultsByMode[gradingMode] ?? [];
+
   const applyRuntimeState = useCallback((runtime: SetRuntimeState) => {
     setEssays(runtime.essays.length > 0 ? runtime.essays : makeDefaultEssays());
-    setRunResultsByEssay(runtime.runResultsByEssay || []);
+    setRunResultsByMode(runtime.runResultsByEssay?.length > 0 ? { single: runtime.runResultsByEssay } : {});
     setRunMetadata(runtime.runMetadata || null);
     setRunConfig(runtime.runConfig || null);
-    setRunCount(Math.min(3, Math.max(1, runtime.runCount || 1)));
+    setRunCount(Math.min(3, Math.max(2, runtime.runCount || 2)));
     setResultsTab(runtime.resultsTab === 'graph' ? 'graph' : 'results');
     setGradingError(null);
   }, []);
@@ -1726,7 +1743,7 @@ export default function PromptPlayground() {
 
     const nextRuntime: SetRuntimeState = {
       essays: essays.length > 0 ? essays : makeDefaultEssays(),
-      runResultsByEssay,
+      runResultsByEssay: runResultsByMode[gradingMode] ?? [],
       runMetadata,
       runConfig,
       runCount,
@@ -1748,7 +1765,7 @@ export default function PromptPlayground() {
 
     setPromptSets(nextSets);
     localStorage.setItem(SETS_STORAGE_KEY, JSON.stringify(nextSets));
-  }, [activeSet, activeSetId, essays, promptSets, resultsTab, runConfig, runCount, runMetadata, runResultsByEssay]);
+  }, [activeSet, activeSetId, essays, promptSets, resultsTab, runConfig, runCount, runMetadata, runResultsByMode, gradingMode]);
 
   useEffect(() => {
     if (sessionIterations.length === 0) {
@@ -1888,68 +1905,78 @@ export default function PromptPlayground() {
     persistSets(next, activeSetId);
   };
 
-  const runGrade = async (targetConfig: BuilderPromptConfig, essay: string): Promise<GradeRunResult> => {
-    const parityCriteria = targetConfig.criteria.map((criterion) => ({
-      name: criterion.name,
-      scoreRange: {
-        min: criterion.scoreRange.min,
-        max: criterion.scoreRange.max,
-      },
-    }));
+  const runGrade = async (
+    targetConfig: BuilderPromptConfig,
+    essay: string,
+    cacheName?: string | null,
+    onCriterionDone?: () => void,
+  ): Promise<GradeRunResult> => {
+    const allResults: TestResult[] = [];
+    const allPrompts: Array<{ criterionName: string; prompt: string }> = [];
+    const allOutputs: Array<{ criterionName: string; output: string }> = [];
 
-    const result = await gradePlaygroundWithConfig({
-      essayText: essay,
-      criteria: parityCriteria,
-      promptSlots: buildPromptSlotsFromConfig(targetConfig),
-      styleOverrides: buildStyleOverridesFromConfig(targetConfig),
-      assessmentType: getAssessmentTypeFromConfig(targetConfig),
-      assessmentLength: getAssessmentLengthFromConfig(targetConfig),
-      debugPrompt: DEBUG_PLAYGROUND_PROMPT,
-    });
+    for (const criterion of targetConfig.criteria) {
+      const result = await gradePlaygroundWithConfig({
+        essayText: essay,
+        criteria: [{
+          name: criterion.name,
+          scoreRange: { min: criterion.scoreRange.min, max: criterion.scoreRange.max },
+        }],
+        promptSlots: buildPromptSlotsFromConfig(targetConfig),
+        styleOverrides: buildStyleOverridesFromConfig(targetConfig),
+        assessmentType: getAssessmentTypeFromConfig(targetConfig),
+        assessmentLength: getAssessmentLengthFromConfig(targetConfig),
+        debugPrompt: DEBUG_PLAYGROUND_PROMPT,
+        cacheName: cacheName ?? undefined,
+      });
 
-    const metadataRaw = (result as { metadata?: Partial<RunMetadata> }).metadata;
-    const metadata: RunMetadata = {
-      mode: 'parity',
-      importable: Boolean(metadataRaw?.importable),
-      prompts: Array.isArray(metadataRaw?.prompts)
-        ? metadataRaw.prompts.filter(
+      const normalized = normalizeTestResults((result as { results?: unknown }).results);
+      allResults.push(...normalized);
+
+      const metadataRaw = (result as { metadata?: Partial<RunMetadata> }).metadata;
+      if (Array.isArray(metadataRaw?.prompts)) {
+        allPrompts.push(
+          ...metadataRaw.prompts.filter(
             (row): row is { criterionName: string; prompt: string } =>
-              !!row &&
-              typeof row === 'object' &&
+              !!row && typeof row === 'object' &&
               typeof (row as { criterionName?: unknown }).criterionName === 'string' &&
               typeof (row as { prompt?: unknown }).prompt === 'string'
           )
-        : undefined,
-      outputs: Array.isArray(metadataRaw?.outputs)
-        ? metadataRaw.outputs.filter(
+        );
+      }
+      if (Array.isArray(metadataRaw?.outputs)) {
+        allOutputs.push(
+          ...metadataRaw.outputs.filter(
             (row): row is { criterionName: string; output: string } =>
-              !!row &&
-              typeof row === 'object' &&
+              !!row && typeof row === 'object' &&
               typeof (row as { criterionName?: unknown }).criterionName === 'string' &&
               typeof (row as { output?: unknown }).output === 'string'
           )
-        : undefined,
-    };
+        );
+      }
 
-    if (metadata.prompts?.length) {
-      console.groupCollapsed('[Prompt Playground] Prompts sent to LLM');
-      metadata.prompts.forEach((row, idx) => {
-        console.log(`#${idx + 1} ${row.criterionName}\n${row.prompt}`);
-      });
-      console.groupEnd();
+      onCriterionDone?.();
     }
 
-    if (metadata.outputs?.length) {
+    if (allPrompts.length > 0) {
+      console.groupCollapsed('[Prompt Playground] Prompts sent to LLM');
+      allPrompts.forEach((row, idx) => console.log(`#${idx + 1} ${row.criterionName}\n${row.prompt}`));
+      console.groupEnd();
+    }
+    if (allOutputs.length > 0) {
       console.groupCollapsed('[Prompt Playground] LLM outputs');
-      metadata.outputs.forEach((row, idx) => {
-        console.log(`#${idx + 1} ${row.criterionName}\n${row.output}`);
-      });
+      allOutputs.forEach((row, idx) => console.log(`#${idx + 1} ${row.criterionName}\n${row.output}`));
       console.groupEnd();
     }
 
     return {
-      results: normalizeTestResults((result as { results?: unknown }).results),
-      metadata,
+      results: allResults,
+      metadata: {
+        mode: 'parity',
+        importable: true,
+        ...(allPrompts.length > 0 ? { prompts: allPrompts } : {}),
+        ...(allOutputs.length > 0 ? { outputs: allOutputs } : {}),
+      },
     };
   };
 
@@ -1989,35 +2016,61 @@ export default function PromptPlayground() {
     }
   };
 
-  const runBuilderGrade = async () => {
+  const runBuilderGrade = async (runCountOverride?: number) => {
     setConfigCollapsed(true);
 
     if (!validation.valid) return;
-    const filledEssays = essays.filter((essay) => essay.text.trim());
-    if (filledEssays.length === 0) return;
+
+    // Derive effective essays and run count from mode
+    const effectiveEssays =
+      gradingMode === 'compare'
+        ? essays.slice(0, Math.min(essays.length, 3)).filter((e) => e.text.trim())
+        : essays.slice(0, 1);
+    const effectiveRunCount = gradingMode === 'consistency'
+      ? Math.min(3, Math.max(2, runCountOverride ?? runCount))
+      : 1;
+
+    if (effectiveEssays.length === 0 || !effectiveEssays[0].text.trim()) return;
 
     setGradingLoading(true);
     setGradingError(null);
-    setRunResultsByEssay([]);
+    setRunResultsByMode((prev) => ({ ...prev, [gradingMode]: [] }));
     setRunMetadata(null);
     const snapshot = cloneConfig(config);
     setRunConfig(snapshot);
 
-    try {
-      const runs = Math.min(3, Math.max(1, runCount));
-      const perEssayOutputs: TestResult[][][] = essays.map(() => []);
+    const totalCriteria = effectiveEssays.length * effectiveRunCount * snapshot.criteria.length;
+    const totalRuns = effectiveEssays.length * effectiveRunCount;
+    let completedCriteria = 0;
+    let completedRuns = 0;
+    setGradingProgressBar({ done: 0, total: totalCriteria });
+    setGradingProgressRuns({ done: 0, total: totalRuns });
 
-      for (let essayIndex = 0; essayIndex < essays.length; essayIndex += 1) {
-        const targetEssay = essays[essayIndex];
-        if (!targetEssay.text.trim()) {
-          perEssayOutputs[essayIndex] = [];
-          continue;
+    // Create a cache per unique essay to reuse across runs
+    const essayCacheMap = new Map<string, string | null>();
+
+    try {
+      const perEssayOutputs: TestResult[][][] = effectiveEssays.map(() => []);
+
+      for (let essayIndex = 0; essayIndex < effectiveEssays.length; essayIndex += 1) {
+        const targetEssay = effectiveEssays[essayIndex];
+
+        // Create cache for this essay if not already cached
+        if (!essayCacheMap.has(targetEssay.text)) {
+          const cache = await createPlaygroundCache(targetEssay.text);
+          essayCacheMap.set(targetEssay.text, cache);
         }
+        const cacheName = essayCacheMap.get(targetEssay.text) ?? null;
 
         const outputs: TestResult[][] = [];
-        for (let idx = 0; idx < runs; idx += 1) {
-          const graded = await runGrade(snapshot, targetEssay.text);
+        for (let idx = 0; idx < effectiveRunCount; idx += 1) {
+          const graded = await runGrade(snapshot, targetEssay.text, cacheName, () => {
+            completedCriteria += 1;
+            setGradingProgressBar({ done: completedCriteria, total: totalCriteria });
+          });
           outputs.push(graded.results);
+          completedRuns += 1;
+          setGradingProgressRuns({ done: completedRuns, total: totalRuns });
           if (essayIndex === 0 && idx === 0) {
             setRunMetadata(graded.metadata);
           }
@@ -2025,10 +2078,14 @@ export default function PromptPlayground() {
         perEssayOutputs[essayIndex] = outputs;
       }
 
-      setRunResultsByEssay(perEssayOutputs);
+      setRunResultsByMode((prev) => ({ ...prev, [gradingMode]: perEssayOutputs }));
     } catch (error) {
       setGradingError(error instanceof Error ? error.message : 'Failed to grade essay');
     } finally {
+      // Clean up caches
+      for (const cache of essayCacheMap.values()) {
+        if (cache) deletePlaygroundCache(cache);
+      }
       setGradingLoading(false);
     }
   };
@@ -2292,6 +2349,11 @@ export default function PromptPlayground() {
         updatedAt: now,
         versions: [nextVersion, ...row.versions.map(cloneVersion)],
         currentVersionId: nextVersion.id,
+        // Mark which iteration was imported
+        optimizationIterations: row.optimizationIterations.map((it) => ({
+          ...it,
+          importedToBuilder: it.id === selectedIterationId ? true : it.importedToBuilder,
+        })),
       };
     });
 
@@ -2305,10 +2367,134 @@ export default function PromptPlayground() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  const downloadSetReport = async (set: EditableSet) => {
+    const XLSX = await import('xlsx');
+    const tagInstructions = new Set(OPTIMIZER_FEEDBACK_TAGS.map((t) => t.instruction.trim()));
+    const wb = XLSX.utils.book_new();
+
+    // --- Versions sheet ---
+    const versionsChronological = [...set.versions].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    const versionRows = versionsChronological.flatMap((v, i) => {
+      const isCurrent = v.id === set.currentVersionId;
+      const header = [{
+        Version: `Version ${i + 1}`,
+        'Created At': new Date(v.createdAt).toLocaleString(),
+        'Current Version': isCurrent ? 'Yes' : '',
+        'Feedback Instruction': v.config.feedbackInstructionText || '',
+        Criterion: '',
+        'Min Score': '',
+        'Max Score': '',
+        'Score': '',
+        'Level Description': '',
+      }];
+      const criteriaRows = v.config.criteria.flatMap((c) =>
+        [...c.levels].sort((a, b) => b.score - a.score).map((lvl, li) => ({
+          Version: '',
+          'Created At': '',
+          'Current Version': '',
+          'Feedback Instruction': '',
+          Criterion: li === 0 ? c.name : '',
+          'Min Score': li === 0 ? c.scoreRange.min : '',
+          'Max Score': li === 0 ? c.scoreRange.max : '',
+          'Score': lvl.score,
+          'Level Description': lvl.description,
+        }))
+      );
+      return [...header, ...criteriaRows];
+    });
+    const wsVersions = XLSX.utils.json_to_sheet(versionRows);
+    XLSX.utils.book_append_sheet(wb, wsVersions, 'Versions');
+
+    // --- Optimizer History sheet ---
+    const iterationsChronological = [...set.optimizationIterations].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    if (iterationsChronological.length > 0) {
+      // --- Optimizer History sheet ---
+      const iterRows = iterationsChronological.map((it, i) => {
+        const baselineVersion = set.versions.find((v) => v.id === it.baselineVersionId);
+        const parts = it.feedback.split('\n\n').map((s) => s.trim()).filter(Boolean);
+        const tags = OPTIMIZER_FEEDBACK_TAGS.filter((t) => parts.includes(t.instruction.trim())).map((t) => t.label);
+        const custom = parts.filter((p) => !tagInstructions.has(p)).join('\n\n');
+        return {
+          Iteration: i + 1,
+          'Created At': new Date(it.createdAt).toLocaleString(),
+          'Baseline Version': baselineVersion ? baselineVersion.name : 'Original config',
+          'Feedback Tags': tags.join(', '),
+          'Custom Feedback': custom || '',
+          'Imported to Builder': it.importedToBuilder ? 'Yes' : '',
+        };
+      });
+      const wsIter = XLSX.utils.json_to_sheet(iterRows);
+      XLSX.utils.book_append_sheet(wb, wsIter, 'Optimizer History');
+
+      // --- Optimizer Configs sheet (baseline + revised rubric & instruction per iteration) ---
+      const configRows = iterationsChronological.flatMap((it, i) => {
+        const formatCfgRows = (label: string, cfg: BuilderPromptConfig) => {
+          const headerRow = [{
+            Iteration: i + 1,
+            Side: label,
+            'Feedback Instruction': cfg.feedbackInstructionText || '',
+            Criterion: '',
+            'Min Score': '',
+            'Max Score': '',
+            Score: '',
+            'Level Description': '',
+          }];
+          const criteriaRows = cfg.criteria.flatMap((c) =>
+            [...c.levels].sort((a, b) => b.score - a.score).map((lvl, li) => ({
+              Iteration: '',
+              Side: '',
+              'Feedback Instruction': '',
+              Criterion: li === 0 ? c.name : '',
+              'Min Score': li === 0 ? c.scoreRange.min : '',
+              'Max Score': li === 0 ? c.scoreRange.max : '',
+              Score: lvl.score,
+              'Level Description': lvl.description,
+            }))
+          );
+          return [...headerRow, ...criteriaRows];
+        };
+        return [
+          ...formatCfgRows('Baseline', it.baselineConfig),
+          ...formatCfgRows('Revised', it.revisedConfig),
+        ];
+      });
+      const wsCfg = XLSX.utils.json_to_sheet(configRows);
+      XLSX.utils.book_append_sheet(wb, wsCfg, 'Optimizer Configs');
+
+      // --- Optimizer Grading Results sheet ---
+      const gradingRows = iterationsChronological.flatMap((it, i) => {
+        if (!it.comparisonResults) return [];
+        const formatResults = (label: string, results: TestResult[]) =>
+          results.map((r) => ({
+            Iteration: i + 1,
+            Side: label,
+            Criterion: r.criterionName,
+            Score: r.score,
+            Feedback: r.justification.join(' '),
+            Evidence: r.evidenceQuotes.map((e) => e.quote).join(' | '),
+          }));
+        return [
+          ...formatResults('Baseline', it.comparisonResults.baseline),
+          ...formatResults('Revised', it.comparisonResults.revised),
+        ];
+      });
+      if (gradingRows.length > 0) {
+        const wsGrading = XLSX.utils.json_to_sheet(gradingRows);
+        XLSX.utils.book_append_sheet(wb, wsGrading, 'Optimizer Results');
+      }
+    }
+
+    XLSX.writeFile(wb, `${set.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_report.xlsx`);
+  };
+
   const renderFeedbackComposer = () => (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="space-y-1.5">
-        <h2 className="text-xl font-semibold tracking-tight text-slate-900">What would you like to improve from the latest grading?</h2>
+        <h2 className="text-xl font-semibold tracking-tight text-slate-900">What would you like to improve?</h2>
       </div>
 
       <div className="mt-4 grid gap-3">
@@ -2442,6 +2628,22 @@ export default function PromptPlayground() {
           ...prev,
           [selectedIteration.id]: getConfigSignature(selectedIteration.revisedConfig),
         }));
+
+        // Persist comparison results to the iteration for export
+        if (activeSetId) {
+          const nextSets = promptSets.map((row) => {
+            if (row.id !== activeSetId) return row;
+            return {
+              ...row,
+              optimizationIterations: row.optimizationIterations.map((it) =>
+                it.id === selectedIteration.id
+                  ? { ...it, comparisonResults: { baseline, revised } }
+                  : it
+              ),
+            };
+          });
+          persistSets(nextSets, activeSetId);
+        }
       }
     } catch (error) {
       setCompareError(error instanceof Error ? error.message : 'Failed to compare prompts');
@@ -2561,13 +2763,22 @@ export default function PromptPlayground() {
                       <FileText className="h-5 w-5" />
                     </div>
                   </div>
-                  <button
-                    onClick={() => deleteSet(row.id)}
-                    className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500"
-                    title="Delete prompt set"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => downloadSetReport(row)}
+                      className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                      title="Download report"
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteSet(row.id)}
+                      className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500"
+                      title="Delete prompt set"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <input
@@ -2603,23 +2814,13 @@ export default function PromptPlayground() {
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-
-            {!isSetupMode && configCollapsed && (
-              <button
-                onClick={() => setConfigCollapsed(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
-                title="Expand configuration"
-              >
-                <PanelLeftOpen className="h-4 w-4" />
-              </button>
-            )}
           </div>
 
           <div className="min-w-0 flex-1">
         <div className="mx-auto w-full max-w-[2200px] px-4 py-2">
           <div className={`mb-4 flex items-center ${isSetupMode ? 'mx-auto max-w-[1800px]' : ''}`}>
               <div className="min-w-0 flex-1">
-                {(!configCollapsed || isSetupMode) && (isRenamingTitle ? (
+                {(isRenamingTitle ? (
                   <div className="flex items-center gap-2">
                     <input
                       value={renameValue}
@@ -2642,14 +2843,16 @@ export default function PromptPlayground() {
                     />
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <h1 className="truncate font-display text-xl font-semibold">{activeSet.name}</h1>
-                    <button
-                      onClick={() => setIsRenamingTitle(true)}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <h1 className="truncate font-display text-xl font-semibold">{activeSet.name}</h1>
+                      <button
+                        onClick={() => setIsRenamingTitle(true)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-slate-100"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2670,13 +2873,6 @@ export default function PromptPlayground() {
                   </summary>
                   <div className="border-t border-slate-200 px-6 pb-4 pt-3">
                     <div className="mb-3 flex items-center justify-between">
-                      <button
-                        onClick={() => setConfig((c) => ({ ...c, criteria: PREDEFINED_RUBRIC }))}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 hover:text-indigo-800"
-                      >
-                        <Upload className="h-3.5 w-3.5" />
-                        Import Rubric
-                      </button>
                       <button
                         onClick={() => setConfig((c) => ({ ...c, criteria: EXAMPLE_RUBRIC }))}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-indigo-300 px-2.5 py-1 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50"
@@ -2772,45 +2968,74 @@ export default function PromptPlayground() {
             <div className="relative">
               <div className="flex flex-col gap-6 xl:flex-row">
                 <div
-                  className={`shrink-0 transition-[width,opacity,transform] duration-300 ease-in-out ${configCollapsed ? 'pointer-events-none w-0 -translate-x-4 overflow-hidden opacity-0' : 'w-full translate-x-0 overflow-visible opacity-100 xl:w-[420px]'}`}
+                  className={`shrink-0 transition-[width,opacity,transform] duration-300 ease-in-out ${configCollapsed ? 'w-auto' : 'w-full xl:w-[420px]'}`}
                 >
+                  {configCollapsed && !isSetupMode && (
+                    <div className="flex pt-1">
+                      <button
+                        onClick={() => setConfigCollapsed(false)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
+                        title="Expand configuration"
+                      >
+                        <PanelLeftOpen className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                   {!configCollapsed && (
                     <div className="flex h-[calc(100vh-190px)] min-h-0 w-full flex-col xl:w-[420px]">
                     {!isSetupMode && (
-                      <div className="mb-3 flex items-center gap-2">
-                        <select
-                          value={selectedVersionId}
-                          onChange={(e) => {
-                            const id = e.target.value;
-                            setSelectedVersionId(id);
-                            if (!activeSetId || !activeSet || !id) return;
-                            const found = activeSet.versions.find((v) => v.id === id);
-                            if (!found) return;
-                            const now = new Date().toISOString();
-                            const next = promptSets.map((row) => {
-                              if (row.id !== activeSetId) return row;
-                              return { ...row, config: cloneConfig(found.config), currentVersionId: found.id, updatedAt: now };
-                            });
-                            setConfig(cloneConfig(found.config));
-                            persistSets(next, activeSetId);
-                            setSavedPulse(true);
-                            setTimeout(() => setSavedPulse(false), 1500);
-                          }}
-                          className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-800 focus:outline-none focus:ring-0"
-                        >
-                          {activeVersions.map((version) => (
-                            <option key={version.id} value={version.id}>
-                              {version.name} • {new Date(version.createdAt).toLocaleString()}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => setConfigCollapsed(true)}
-                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
-                          title="Collapse configuration"
-                        >
-                          <PanelLeftClose className="h-4 w-4" />
-                        </button>
+                      <div className="mb-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <h3 className="text-base font-semibold text-slate-800">Grading Instructions</h3>
+                          <div className="flex items-center gap-1">
+                            <div className="relative">
+                              <button
+                                onClick={() => setHistoryOpen((v) => !v)}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
+                                title="Version history"
+                              >
+                                <History className="h-4 w-4" />
+                              </button>
+                              {historyOpen && (
+                                <div className="absolute right-0 top-full z-20 mt-1.5 w-72 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                  {activeVersions.map((version) => (
+                                    <button
+                                      key={version.id}
+                                      onClick={() => {
+                                        const id = version.id;
+                                        setSelectedVersionId(id);
+                                        setHistoryOpen(false);
+                                        if (!activeSetId || !activeSet) return;
+                                        const found = activeSet.versions.find((v) => v.id === id);
+                                        if (!found) return;
+                                        const now = new Date().toISOString();
+                                        const next = promptSets.map((row) => {
+                                          if (row.id !== activeSetId) return row;
+                                          return { ...row, config: cloneConfig(found.config), currentVersionId: found.id, updatedAt: now };
+                                        });
+                                        setConfig(cloneConfig(found.config));
+                                        persistSets(next, activeSetId);
+                                        setSavedPulse(true);
+                                        setTimeout(() => setSavedPulse(false), 1500);
+                                      }}
+                                      className={`flex w-full flex-col rounded-md px-3 py-2 text-left text-xs hover:bg-slate-50 ${selectedVersionId === version.id ? 'bg-slate-50 font-semibold text-slate-800' : 'text-slate-700'}`}
+                                    >
+                                      <span className="font-medium">{version.name}</span>
+                                      <span className="text-slate-400">{new Date(version.createdAt).toLocaleString()}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => setConfigCollapsed(true)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-slate-50/80 text-slate-600 hover:bg-slate-100"
+                              title="Collapse configuration"
+                            >
+                              <PanelLeftClose className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -2836,21 +3061,6 @@ export default function PromptPlayground() {
                             <FileText className="h-4 w-4 text-slate-800" />
                             Rubric
                           </span>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfig((c) => ({ ...c, criteria: PREDEFINED_RUBRIC })); }}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 hover:text-indigo-800"
-                          >
-                            <Upload className="h-3.5 w-3.5" />
-                            Import Rubric
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfig((c) => ({ ...c, criteria: EXAMPLE_RUBRIC })); }}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-indigo-300 px-2.5 py-1 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-50"
-                          >
-                            Load Example
-                          </button>
                         </summary>
                         <div className="border-t border-slate-200 px-6 pb-4 pt-3">
                           <RubricTable
@@ -2946,116 +3156,161 @@ export default function PromptPlayground() {
                 </div>
 
                 <div className="min-w-0 flex-1">
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <h2 className="text-sm font-semibold text-slate-800">Student Essays</h2>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={addEssay}
-                      disabled={essays.length >= 3 || gradingLoading}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Add Essay ({Math.max(0, 3 - essays.length)} left)
-                    </button>
-                  </div>
+                <h2 className="mb-3 text-base font-semibold text-slate-800">Grading Evaluation</h2>
+
+                {/* Mode tabs */}
+                <div className="mb-4 flex border-b border-slate-200">
+                  {([
+                    { key: 'single', label: 'One Essay', icon: FileText },
+                    { key: 'compare', label: 'Compare', icon: Files },
+                    { key: 'consistency', label: 'Consistency', icon: RefreshCw },
+                  ] as const).map((tab) => {
+                    const Icon = tab.icon;
+                    const active = gradingMode === tab.key;
+                    return (
+                      <button
+                        key={tab.key}
+                        onClick={() => {
+                          setGradingMode(tab.key);
+                          setGradingError(null);
+                          if (tab.key === 'compare' && essays.length < 2) {
+                            setEssays((prev) => [...prev, { id: crypto.randomUUID(), text: '' }]);
+                          }
+                          if (tab.key === 'consistency') setRunCount(2);
+                        }}
+                        className={`relative flex flex-1 flex-col items-center gap-1 pb-3 pt-2 text-xs font-semibold uppercase tracking-wide transition-colors
+                          ${active ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'} ${gradingLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        disabled={gradingLoading}
+                        style={gradingLoading ? { pointerEvents: 'none' } : {}}
+                      >
+                        <Icon className="h-5 w-5" />
+                        {tab.label}
+                        {active && (
+                          <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-indigo-600" />
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
 
+                {/* Student Essays */}
                 <div className="mb-4 space-y-3">
-                  <div className={`grid gap-3 ${essays.length === 1 ? 'grid-cols-1' : essays.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-                    {essays.map((essay, index) => (
-                      <div key={essay.id}>
-                        <div className="mb-2 flex items-center justify-between">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Essay {index + 1}</p>
-                          <div className="flex items-center gap-1">
-                            <label className={gradingLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}>
-                              <input
-                                type="file"
-                                accept=".txt,.md,.pdf"
-                                className="hidden"
-                                disabled={gradingLoading}
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) uploadEssayFile(essay.id, file);
-                                  e.currentTarget.value = '';
-                                }}
+                  {(() => {
+                    const visibleEssays = gradingMode === 'compare' ? essays : essays.slice(0, 1);
+                    return (
+                      <div className="flex gap-3">
+                        <div className={`grid flex-1 gap-3 ${visibleEssays.length === 1 ? 'grid-cols-1' : visibleEssays.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                        {visibleEssays.map((essay, index) => (
+                          <div key={essay.id}>
+                            <div className="mb-2 flex items-center justify-between">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Essay {index + 1}</p>
+                              <div className="flex items-center gap-1">
+                                <label className={gradingLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}>
+                                  <input
+                                    type="file"
+                                    accept=".txt,.md,.pdf"
+                                    className="hidden"
+                                    disabled={gradingLoading}
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) uploadEssayFile(essay.id, file);
+                                      e.currentTarget.value = '';
+                                    }}
+                                  />
+                                  <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100">
+                                    <Upload className="h-3 w-3" />
+                                    Upload
+                                  </span>
+                                </label>
+                                {gradingMode === 'compare' && essays.length > 2 && (
+                                  <button
+                                    onClick={() => removeEssay(essay.id)}
+                                    disabled={gradingLoading}
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                    title="Remove essay"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <textarea
+                              value={essay.text}
+                              onChange={(e) => updateEssay(essay.id, e.target.value)}
+                              placeholder="Paste or type the student essay here..."
+                              rows={8}
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                            />
+                          </div>
+                        ))}
+                        </div>
+                        {gradingMode === 'compare' && essays.length < 3 && (
+                          <button
+                            onClick={addEssay}
+                            disabled={gradingLoading}
+                            className="flex w-7 shrink-0 flex-col items-center justify-center gap-1.5 self-stretch rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/60 text-slate-400 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            title="Add essay"
+                          >
+                            <Plus className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  <div className="flex flex-col gap-2">
+                    {gradingMode === 'consistency' ? (
+                      <div className="flex gap-2">
+                        {[2, 3].map((n) => (
+                          <div key={n} className="relative flex-1 overflow-hidden rounded-lg">
+                            <button
+                              onClick={() => { setRunCount(n); runBuilderGrade(n); }}
+                              disabled={!validation.valid || !primaryEssayText.trim() || gradingLoading}
+                              className="relative z-10 inline-flex w-full items-center justify-center gap-2 bg-slate-800 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {gradingLoading && runCount === n ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                              {gradingLoading && runCount === n
+                                ? `Grading... ${gradingProgressRuns.done}/${gradingProgressRuns.total}`
+                                : `Run ${n} times`}
+                            </button>
+                            {gradingLoading && runCount === n && gradingProgressBar.total > 0 && (
+                              <div
+                                className="absolute inset-y-0 left-0 bg-indigo-600/30 transition-all duration-300"
+                                style={{ width: `${(gradingProgressBar.done / gradingProgressBar.total) * 100}%` }}
                               />
-                              <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100">
-                                <Upload className="h-3 w-3" />
-                                Upload
-                              </span>
-                            </label>
-                            {essays.length > 1 && (
-                              <button
-                                onClick={() => removeEssay(essay.id)}
-                                disabled={gradingLoading}
-                                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                title="Remove essay"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
                             )}
                           </div>
-                        </div>
-                        <textarea
-                          value={essay.text}
-                          onChange={(e) => updateEssay(essay.id, e.target.value)}
-                          placeholder="Paste or type the student essay here..."
-                          rows={8}
-                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                        />
+                        ))}
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <div className="flex items-stretch overflow-hidden rounded-lg border border-slate-300 shadow-sm">
+                    ) : (
+                      <div className="relative overflow-hidden rounded-lg">
                         <button
-                          onClick={runBuilderGrade}
+                          onClick={() => runBuilderGrade()}
                           disabled={!validation.valid || !primaryEssayText.trim() || gradingLoading}
-                          className="inline-flex flex-1 items-center justify-center gap-2 bg-slate-800 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="relative z-10 inline-flex w-full items-center justify-center gap-2 bg-slate-800 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {gradingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                          {gradingLoading ? 'Grading...' : 'Run'}
+                          {gradingLoading
+                            ? `Grading... ${gradingProgressRuns.done}/${gradingProgressRuns.total}`
+                            : 'Run'}
                         </button>
-                        <button
-                          onClick={() => setRunMenuOpen((v) => !v)}
-                          disabled={!validation.valid || !primaryEssayText.trim() || gradingLoading}
-                          aria-haspopup="menu"
-                          aria-expanded={runMenuOpen}
-                          className="relative inline-flex min-w-[142px] items-center justify-center border-l-2 border-slate-500 bg-slate-800 px-3 py-2.5 pr-8 text-sm font-medium text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                          title="Select run count"
-                        >
-                          <span className="text-center">Times: {runCount}</span>
-                          <span className="absolute right-3 text-slate-200">
-                            <ChevronDown className="h-4 w-4" />
-                          </span>
-                        </button>
+                        {gradingLoading && gradingProgressBar.total > 0 && (
+                          <div
+                            className="absolute inset-y-0 left-0 bg-indigo-600/30 transition-all duration-300"
+                            style={{ width: `${(gradingProgressBar.done / gradingProgressBar.total) * 100}%` }}
+                          />
+                        )}
                       </div>
-                      {runMenuOpen && (
-                        <div className="absolute right-0 top-full z-20 mt-1.5 w-44 rounded-lg border border-slate-200 bg-slate-50/95 p-1 shadow-lg backdrop-blur-sm">
-                          {[1, 2, 3].map((n) => (
-                            <button
-                              key={n}
-                              onClick={() => {
-                                setRunCount(n);
-                                setRunResultsByEssay([]);
-                                setGradingError(null);
-                                setRunMenuOpen(false);
-                              }}
-                              className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-100"
-                            >
-                              Run {n} time{n > 1 ? 's' : ''}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="mb-3 mt-4 flex items-center gap-2">
-                  <h2 className="text-sm font-medium">Results {runCount > 1 ? `(${runCount} runs)` : ''}</h2>
+                  <h2 className="text-sm font-medium">
+                    Results
+                    {gradingMode === 'consistency' && runCount > 1 ? ` (${runCount} runs)` : ''}
+                    {gradingMode === 'compare' && runResultsByEssay.filter((r) => r.length > 0).length > 1 ? ` (${runResultsByEssay.filter((r) => r.length > 0).length} essays)` : ''}
+                  </h2>
                   <button
                     onClick={() => {
                       const latestRun = primaryRunOutputs[primaryRunOutputs.length - 1] || null;
@@ -3093,7 +3348,7 @@ export default function PromptPlayground() {
                   )}
                   {runResultsByEssay.some((runs) => runs.length > 0) ? (
                     <div className="space-y-3">
-                      {runCount > 1 && (
+                      {gradingMode === 'consistency' && (
                         <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1 text-xs">
                           <button
                             onClick={() => setResultsTab('graph')}
@@ -3110,7 +3365,7 @@ export default function PromptPlayground() {
                         </div>
                       )}
 
-                      {runCount > 1 && resultsTab === 'graph' ? (
+                      {gradingMode === 'consistency' && resultsTab === 'graph' ? (
                         <div className="flex gap-4 overflow-x-auto pb-1">
                           {runResultsByEssay.map((essayRuns, essayIdx) => {
                             if (essayRuns.length === 0) return null;
@@ -3126,19 +3381,19 @@ export default function PromptPlayground() {
                         <div className="flex gap-4 overflow-x-auto pb-1">
                           {runResultsByEssay.map((essayRuns, essayIdx) => {
                             if (essayRuns.length === 0) return null;
-                            const runsToShow = runCount > 1 ? essayRuns : [essayRuns[essayRuns.length - 1]];
+                            const runsToShow = gradingMode === 'consistency' ? essayRuns : [essayRuns[essayRuns.length - 1]];
                             const multiEssay = runResultsByEssay.filter((r) => r.length > 0).length > 1;
-                            const stackRuns = multiEssay && runCount > 1;
+                            const stackRuns = multiEssay && gradingMode === 'consistency';
                             return (
                               <div key={`result-${essayIdx}`} className="min-w-[360px] flex-1 space-y-2">
-                                <p className="text-sm font-medium text-slate-700">Essay {essayIdx + 1}</p>
+                                {multiEssay && <p className="text-sm font-medium text-slate-700">Essay {essayIdx + 1}</p>}
                                 <div className={stackRuns ? 'space-y-3' : `grid gap-3 ${runsToShow.length === 1 ? 'grid-cols-1' : runsToShow.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
                                   {runsToShow.map((runRows, runIdx) => {
                                     const total = getSetTotal(runRows);
                                     const maxTotal = getMaxTotal((runConfig ?? config).criteria);
                                     return (
                                       <div key={`essay-${essayIdx}-run-${runIdx}`} className="space-y-2">
-                                        {runCount > 1 && (
+                                        {gradingMode === 'consistency' && (
                                           <p className="text-xs font-semibold text-indigo-500">Run {runIdx + 1}</p>
                                         )}
                                         <div className="flex items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
@@ -3319,6 +3574,35 @@ export default function PromptPlayground() {
                         ref={(el) => { if (isNewest) newestIterationRef.current = el; }}
                         className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
                       >
+                      {/* What was improved */}
+                      {iteration.feedback && (
+                        <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">What was improved</p>
+                          <div className="flex flex-wrap gap-2">
+                            {OPTIMIZER_FEEDBACK_TAGS.filter((tag) =>
+                              iteration.feedback.split('\n\n').map((s) => s.trim()).includes(tag.instruction.trim())
+                            ).map((tag) => (
+                              <span
+                                key={tag.label}
+                                className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
+                              >
+                                {tag.label}
+                              </span>
+                            ))}
+                          </div>
+                          {/* Show any custom text not matching a tag */}
+                          {(() => {
+                            const tagInstructions = new Set(OPTIMIZER_FEEDBACK_TAGS.map((t) => t.instruction.trim()));
+                            const customParts = iteration.feedback
+                              .split('\n\n')
+                              .map((s) => s.trim())
+                              .filter((s) => s && !tagInstructions.has(s));
+                            return customParts.length > 0 ? (
+                              <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-600">{customParts.join('\n\n')}</p>
+                            ) : null;
+                          })()}
+                        </div>
+                      )}
                       {/* Config side-by-side */}
                       <div className="mb-4">
                         <IterationConfigReviewEditor

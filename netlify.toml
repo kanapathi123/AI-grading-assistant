@@ -1,0 +1,6 @@
+[functions]
+  external_node_modules = ["@google/genai"]
+
+[build]
+  command = "npm run build"
+  publish = ".next"

@@ -36,7 +36,7 @@ export default function Navbar({ currentView, onNavigate, teacherName, onExportC
   useEffect(() => {
     /* On mount: check localStorage, ignore browser preference — app controls mode */
     const stored = localStorage.getItem('theme');
-    const dark = stored !== 'light'; // default to dark
+    const dark = stored === 'dark';
     setIsDark(dark);
     document.documentElement.classList.toggle('dark', dark);
   }, []);

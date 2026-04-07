@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, createUserContent } from '@google/genai';
+
+// Allow up to 60s for Gemini API calls on serverless platforms
+export const maxDuration = 60;
+
 import {
   DEFAULT_GRADING_SYSTEM_PROMPT,
   buildGradeSingleCriterionPrompt,
@@ -295,8 +299,17 @@ export async function POST(request: NextRequest) {
             promptSlots?: EditablePromptSlots;
             styleOverrides?: Partial<FeedbackStyleConfig>;
             modelOverride?: string;
+            cacheName?: string;
           }
         );
+      case 'playgroundCreateCache':
+        if (!asString(payload.essayText)) return badRequest('payload.essayText must be a string');
+        return handlePlaygroundCreateCache(
+          payload as { essayText: string; modelOverride?: string }
+        );
+      case 'playgroundDeleteCache':
+        if (!asString(payload.cacheName)) return badRequest('payload.cacheName must be a string');
+        return handleDeleteRubricCache(payload as { cacheName: string });
       case 'playgroundCompareGrade':
         if (!asString(payload.essayText)) return badRequest('payload.essayText must be a string');
         if (!isObject(payload.originalConfig)) return badRequest('payload.originalConfig must be an object');
@@ -920,12 +933,62 @@ async function handlePlaygroundGrade(payload: {
   assessmentLength?: 'short' | 'medium' | 'long';
   debugPrompt?: boolean;
   modelOverride?: string;
+  cacheName?: string;
 }) {
   const graded = await gradePlaygroundParity(payload);
 
   return NextResponse.json({
     result: graded,
   });
+}
+
+async function handlePlaygroundCreateCache(payload: {
+  essayText: string;
+  modelOverride?: string;
+}) {
+  const modelSelection = resolveModelSelection(payload.modelOverride);
+
+  if (modelSelection.provider !== 'gemini') {
+    return NextResponse.json({
+      result: { cacheName: null },
+    });
+  }
+
+  if (!ai) {
+    return NextResponse.json({
+      result: { cacheName: null },
+    });
+  }
+
+  // Gemini requires at least 1024 tokens for cached content (~4000 chars).
+  // Skip caching for small essays to avoid API errors.
+  const cacheContent = `ESSAY:\n${payload.essayText}`;
+  if (cacheContent.length < 4096) {
+    return NextResponse.json({
+      result: { cacheName: null },
+    });
+  }
+
+  try {
+    const cache = await ai.caches.create({
+      model: modelSelection.model,
+      config: {
+        contents: [createUserContent([cacheContent])],
+        systemInstruction: DEFAULT_GRADING_SYSTEM_PROMPT,
+        displayName: `playground-essay-${Date.now()}`,
+        ttl: '600s',
+      },
+    });
+
+    return NextResponse.json({
+      result: { cacheName: cache.name ?? null },
+    });
+  } catch (error) {
+    console.warn('[PlaygroundCache] Creation failed:', error);
+    return NextResponse.json({
+      result: { cacheName: null },
+    });
+  }
 }
 
 async function gradePlaygroundParity(payload: {
@@ -937,6 +1000,7 @@ async function gradePlaygroundParity(payload: {
   assessmentLength?: 'short' | 'medium' | 'long';
   debugPrompt?: boolean;
   modelOverride?: string;
+  cacheName?: string;
 }): Promise<{
   results: Array<Record<string, unknown>>;
   metadata: {
@@ -947,6 +1011,7 @@ async function gradePlaygroundParity(payload: {
   };
 }> {
   const modelSelection = resolveModelSelection(payload.modelOverride);
+  const hasCacheAvailable = !!payload.cacheName && modelSelection.provider === 'gemini';
 
   if (!payload.essayText?.trim()) {
     throw new Error('essayText is required');
@@ -982,7 +1047,7 @@ async function gradePlaygroundParity(payload: {
         evidenceReferenceMode: 'text',
       },
       effective: effectivePromptConfig,
-      cacheMode: 'non-cached',
+      cacheMode: hasCacheAvailable ? 'cached' : 'non-cached',
     });
 
     if (payload.debugPrompt) {
@@ -991,7 +1056,17 @@ async function gradePlaygroundParity(payload: {
     }
 
     const maxTokens = isThinkingModel(modelSelection) ? 8192 : 4096;
-    const raw = await callModel(prompt, modelSelection, maxTokens, 0.2);
+    let raw: unknown;
+    if (hasCacheAvailable) {
+      try {
+        raw = await callGeminiWithCache(prompt, modelSelection.model, payload.cacheName!, maxTokens, 0.2);
+      } catch (cacheError) {
+        console.warn('[PlaygroundGrade] Cached call failed, falling back to standard:', cacheError);
+        raw = await callModel(prompt, modelSelection, maxTokens, 0.2);
+      }
+    } else {
+      raw = await callModel(prompt, modelSelection, maxTokens, 0.2);
+    }
 
     if (payload.debugPrompt) {
       const outputText = typeof raw === 'string' ? raw : '';
@@ -999,7 +1074,7 @@ async function gradePlaygroundParity(payload: {
       console.log(`[PlaygroundGrade] Raw output for "${criterion.name}"\n${outputText}`);
     }
 
-    const cleaned = cleanJsonObject(raw);
+    const cleaned = cleanJsonObject(typeof raw === 'string' ? raw : String(raw ?? ''));
     const parsed = safeParseJsonObject(cleaned);
 
     if (!parsed) {

@@ -11,6 +11,8 @@ import {
   Check,
   Trash2,
   Sparkles,
+  FileUp,
+  Type,
 } from 'lucide-react';
 import type {
   Criterion,
@@ -399,11 +401,15 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
 
   /* ---- UI state ---- */
   const [isProcessingRubric, setIsProcessingRubric] = useState<boolean>(false);
-  const [rubricCreationMode, setRubricCreationMode] = useState<'manual' | 'import'>('manual');
+  const [rubricCreationMode, setRubricCreationMode] = useState<'manual' | 'paste' | 'upload' | 'import'>('manual');
   const [playgroundSets, setPlaygroundSets] = useState<PlaygroundSet[]>([]);
   const [selectedPlaygroundSetId, setSelectedPlaygroundSetId] = useState<string>('');
   const [settingsSelectedSetId, setSettingsSelectedSetId] = useState<string>('');
   const [showContextDialog, setShowContextDialog] = useState<boolean>(false);
+  const [rubricPasteContent, setRubricPasteContent] = useState<string>('');
+  const [rubricUploadExtracting, setRubricUploadExtracting] = useState<boolean>(false);
+  const [rubricUploadFileName, setRubricUploadFileName] = useState<string | null>(null);
+  const rubricFileInputRef = useRef<HTMLInputElement>(null);
 
   /* ---- timing ---- */
   const [criterionStartTime, setCriterionStartTime] = useState<number | null>(null);
@@ -900,6 +906,65 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     setRubricCriteria(editableCriteria);
   }, [convertPlaygroundCriteriaToEditable, canImportFromPlayground, selectedPlaygroundCriteria]);
 
+  const handleRubricPasteExtract = useCallback(async () => {
+    if (!rubricPasteContent.trim()) return;
+    setIsProcessingRubric(true);
+    try {
+      const result = await extractRubricCriteria(rubricPasteContent);
+      if (result === 'NO_VALID_RUBRIC') {
+        alert('Could not extract valid rubric criteria from the pasted text. Please check the format.');
+      } else if (Array.isArray(result) && result.length > 0) {
+        setRubricCriteria(result as Criterion[]);
+        setRubricCreationMode('manual');
+      }
+    } catch {
+      alert('Failed to extract rubric. Please try again.');
+    } finally {
+      setIsProcessingRubric(false);
+    }
+  }, [rubricPasteContent]);
+
+  const handleRubricPdfUpload = useCallback(async (file: File) => {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      alert('Please upload a PDF file.');
+      return;
+    }
+    setRubricUploadExtracting(true);
+    setRubricUploadFileName(file.name);
+    try {
+      const text = await extractTextFromPdf(file);
+      if (!text?.trim()) {
+        alert('Could not extract text from the PDF.');
+        setRubricUploadExtracting(false);
+        return;
+      }
+      setRubricPasteContent(text);
+      // Auto-extract criteria from the PDF text
+      const result = await extractRubricCriteria(text);
+      if (result === 'NO_VALID_RUBRIC') {
+        alert('Extracted text but could not identify rubric criteria. You can edit the text in Paste mode.');
+        setRubricCreationMode('paste');
+      } else if (Array.isArray(result) && result.length > 0) {
+        setRubricCriteria(result as Criterion[]);
+        setRubricCreationMode('manual');
+      }
+    } catch {
+      alert('Error reading PDF. Try pasting the rubric text instead.');
+    } finally {
+      setRubricUploadExtracting(false);
+    }
+  }, []);
+
+  const handleRubricFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) handleRubricPdfUpload(file);
+      if (rubricFileInputRef.current) rubricFileInputRef.current.value = '';
+    },
+    [handleRubricPdfUpload],
+  );
+
   /* -------------------------------------------------------------------------- */
   /*  RENDER                                                                     */
   /* -------------------------------------------------------------------------- */
@@ -945,28 +1010,107 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
                   {/* Tabs */}
                   <div className="flex gap-2 border-b border-[var(--card-border)]">
                     <button
+                      onClick={() => setRubricCreationMode('paste')}
+                      className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors ${
+                        rubricCreationMode === 'paste'
+                          ? 'border-b-2 border-[#6366F1] text-[#6366F1]'
+                          : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      <Type className="h-3.5 w-3.5" />
+                      Paste Text
+                    </button>
+                    <button
+                      onClick={() => setRubricCreationMode('upload')}
+                      className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors ${
+                        rubricCreationMode === 'upload'
+                          ? 'border-b-2 border-[#6366F1] text-[#6366F1]'
+                          : 'text-[var(--muted)] hover:text-[var(--foreground)]'
+                      }`}
+                    >
+                      <FileUp className="h-3.5 w-3.5" />
+                      Upload PDF
+                    </button>
+                    <button
                       onClick={() => setRubricCreationMode('manual')}
-                      className={`px-4 py-2.5 text-sm font-medium transition-colors ${
+                      className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors ${
                         rubricCreationMode === 'manual'
                           ? 'border-b-2 border-[#6366F1] text-[#6366F1]'
                           : 'text-[var(--muted)] hover:text-[var(--foreground)]'
                       }`}
                     >
+                      <Plus className="h-3.5 w-3.5" />
                       Create Manually
                     </button>
                     {playgroundSets.length > 0 && (
                       <button
                         onClick={() => setRubricCreationMode('import')}
-                        className={`px-4 py-2.5 text-sm font-medium transition-colors ${
+                        className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors ${
                           rubricCreationMode === 'import'
                             ? 'border-b-2 border-[#6366F1] text-[#6366F1]'
                             : 'text-[var(--muted)] hover:text-[var(--foreground)]'
                         }`}
                       >
+                        <Sparkles className="h-3.5 w-3.5" />
                         Import from Playground
                       </button>
                     )}
                   </div>
+
+                  {/* Paste mode */}
+                  {rubricCreationMode === 'paste' && (
+                    <div className="space-y-3">
+                      <textarea
+                        rows={10}
+                        value={rubricPasteContent}
+                        onChange={(e) => setRubricPasteContent(e.target.value)}
+                        placeholder="Paste your rubric text here. AI will extract criteria and scoring levels automatically..."
+                        className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-[#1E1B4B] placeholder-gray-400 focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/20 dark:border-slate-600 dark:bg-slate-800 dark:text-[#E2E8F0]"
+                      />
+                      <button
+                        onClick={handleRubricPasteExtract}
+                        disabled={!rubricPasteContent.trim() || isProcessingRubric}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#6366F1] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#5558E6] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isProcessingRubric ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        {isProcessingRubric ? 'Extracting...' : 'Extract Criteria with AI'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Upload mode */}
+                  {rubricCreationMode === 'upload' && (
+                    <div className="space-y-3">
+                      <input
+                        ref={rubricFileInputRef}
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        onChange={handleRubricFileChange}
+                      />
+                      {rubricUploadExtracting ? (
+                        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-500/5 py-12">
+                          <Loader2 className="mb-3 h-8 w-8 animate-spin text-indigo-500" />
+                          <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                            Extracting criteria from {rubricUploadFileName}...
+                          </p>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => rubricFileInputRef.current?.click()}
+                          className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--muted)]/30 py-12 transition-colors duration-200 hover:border-indigo-400 hover:bg-indigo-500/5"
+                        >
+                          <FileUp className="mb-3 h-8 w-8" style={{ color: 'var(--muted)' }} />
+                          <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                            Click to upload a rubric PDF
+                          </p>
+                          <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
+                            AI will extract criteria automatically
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Tab Content */}
                   {rubricCreationMode === 'manual' && (

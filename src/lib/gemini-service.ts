@@ -282,6 +282,7 @@ export const gradePlaygroundWithConfig = async (params: {
   assessmentLength?: AssessmentLength;
   debugPrompt?: boolean;
   modelOverride?: string;
+  cacheName?: string | null;
 }): Promise<PlaygroundGradeResult> => {
   const result = await callApi('playgroundGrade', {
     essayText: params.essayText,
@@ -292,6 +293,7 @@ export const gradePlaygroundWithConfig = async (params: {
     assessmentLength: params.assessmentLength || 'medium',
     debugPrompt: Boolean(params.debugPrompt),
     modelOverride: params.modelOverride,
+    ...(params.cacheName ? { cacheName: params.cacheName } : {}),
   });
 
   const results = Array.isArray(result?.results) ? result.results : [];
@@ -303,6 +305,23 @@ export const gradePlaygroundWithConfig = async (params: {
     results,
     metadata,
   };
+};
+
+export const createPlaygroundCache = async (essayText: string): Promise<string | null> => {
+  try {
+    const result = await callApi('playgroundCreateCache', { essayText });
+    return result?.cacheName ?? null;
+  } catch {
+    return null;
+  }
+};
+
+export const deletePlaygroundCache = async (cacheName: string): Promise<void> => {
+  try {
+    await callApi('playgroundDeleteCache', { cacheName });
+  } catch {
+    // Best-effort cleanup
+  }
 };
 
 /**
