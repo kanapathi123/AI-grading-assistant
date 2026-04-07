@@ -16,6 +16,8 @@ export interface PdfHighlight {
 interface PdfViewerProps {
   url: string | null;
   highlights?: PdfHighlight[];
+  disableTextLayer?: boolean;
+  initialScale?: number;
 }
 
 const HIGHLIGHT_COLORS: Record<string, { bg: string; border: string }> = {};
@@ -40,10 +42,10 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
+export default function PdfViewer({ url, highlights = [], disableTextLayer = false, initialScale = 1.0 }: PdfViewerProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState<number>(1);
-  const [scale, setScale] = useState<number>(1.0);
+  const [scale, setScale] = useState<number>(initialScale);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<boolean>(false);
 
@@ -198,7 +200,7 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
   }, [highlights]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+    <div className="pdf-viewer-container flex h-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-slate-700 dark:bg-slate-900">
       {/* Toolbar */}
       <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center gap-1">
@@ -292,8 +294,9 @@ export default function PdfViewer({ url, highlights = [] }: PdfViewerProps) {
                 scale={scale}
                 className="shadow-lg"
                 loading={null}
-                onGetTextSuccess={handleGetTextSuccess}
-                customTextRenderer={highlightMapRef.current.size > 0 ? customTextRenderer : undefined}
+                renderTextLayer={!disableTextLayer}
+                onGetTextSuccess={!disableTextLayer ? handleGetTextSuccess : undefined}
+                customTextRenderer={!disableTextLayer && highlightMapRef.current.size > 0 ? customTextRenderer : undefined}
               />
             </div>
           )}

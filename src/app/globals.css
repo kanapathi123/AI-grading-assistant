@@ -125,6 +125,24 @@ body {
   user-select: text;
 }
 
+.pdf-viewer-container .react-pdf__Page__textContent span {
+  color: transparent !important;
+  background: transparent !important;
+}
+
+.pdf-viewer-container .react-pdf__Page__textContent span::selection {
+  background: rgba(99, 102, 241, 0.35) !important;
+}
+
+.pdf-viewer-container .react-pdf__Page__textContent span::-moz-selection {
+  background: rgba(99, 102, 241, 0.35) !important;
+}
+
+/* Keep highlight marks visible */
+.pdf-viewer-container .react-pdf__Page__textContent mark.pdf-hl {
+  opacity: 1 !important;
+}
+
 /* Animation keyframes */
 @keyframes shimmer {
   0% {

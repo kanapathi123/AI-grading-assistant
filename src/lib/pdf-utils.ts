@@ -36,20 +36,61 @@ export const extractTextFromPdf = async (
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
       fullTextContent += `[PAGE ${i}]\n`;
-      // Smart join: avoid spaces inside words
-      const items = content.items.map((item) => ('str' in item ? item.str : ''));
+
+      const items = content.items.filter(
+        (item): item is typeof item & { str: string; transform: number[] } => 'str' in item
+      );
+
       let pageText = '';
-      for (let j = 0; j < items.length; j++) {
-        const curr = items[j];
-        const prev = items[j - 1] || '';
-        // If both prev and curr are alphanumeric, don't add a space
-        if (j > 0 && /[a-zA-Z0-9]$/.test(prev) && /^[a-zA-Z0-9]/.test(curr)) {
-          pageText += curr;
-        } else {
-          if (j > 0) pageText += ' ';
-          pageText += curr;
-        }
+      let prevY: number | null = null;
+      let prevEndX = 0;
+      let lineStartX: number | null = null;
+      let minX = Infinity;
+
+      // First pass: find the minimum x (left margin) to detect indentation
+      for (const item of items) {
+        const x = item.transform[4];
+        if (item.str.trim()) minX = Math.min(minX, x);
       }
+
+      for (let j = 0; j < items.length; j++) {
+        const item = items[j];
+        const str = item.str;
+        const x = item.transform[4];
+        const y = item.transform[5];
+        const fontSize = Math.abs(item.transform[3]) || Math.abs(item.transform[0]) || 12;
+
+        if (prevY !== null) {
+          const yDrop = prevY - y; // positive = moved down
+          const isNewLine = yDrop > fontSize * 0.5;
+          const isLargeGap = yDrop > fontSize * 1.8; // big vertical gap = paragraph break
+          const isIndented = str.trim() && (x - minX) > fontSize * 1.5; // indented = new paragraph
+
+          if (isLargeGap) {
+            pageText += '\n\n';
+            lineStartX = x;
+          } else if (isNewLine) {
+            if (isIndented) {
+              pageText += '\n\n';
+            } else {
+              pageText += ' ';
+            }
+            lineStartX = x;
+          } else {
+            // Same line — add space if there's a gap between items
+            const gap = x - prevEndX;
+            if (gap > fontSize * 0.3 && j > 0) pageText += ' ';
+          }
+        } else {
+          lineStartX = x;
+        }
+
+        pageText += str;
+        prevY = y;
+        // Estimate end x position: x + string width (approximate)
+        prevEndX = x + str.length * fontSize * 0.5;
+      }
+
       fullTextContent += pageText + '\n\n';
     }
 
@@ -64,7 +105,7 @@ export const extractTextFromPdf = async (
     // 3. Remove extra spaces before/after page markers
     text = text.replace(/\s*\[PAGE (\d+)\]\s*/g, '\n[PAGE $1]\n');
 
-    return text;
+    return text.replace(/^\s+/, '');
   } catch {
     return '';
   }

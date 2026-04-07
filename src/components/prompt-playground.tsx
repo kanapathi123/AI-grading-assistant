@@ -14,6 +14,7 @@ import {
   History,
   Info,
   Loader2,
+  Maximize2,
   MessageSquare,
   Pencil,
   Play,
@@ -25,6 +26,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Type,
   Upload,
   Wand2,
   X,
@@ -49,6 +51,7 @@ import {
   optimizePlaygroundConfig,
 } from '@/lib/gemini-service';
 import type { CriterionLevel } from '@/types';
+import PdfViewer from '@/components/grading/pdf-viewer';
 
 const SETS_STORAGE_KEY = 'prompt-playground-sets-v2';
 const ACTIVE_SET_KEY = 'prompt-playground-active-set-id-v2';
@@ -72,7 +75,7 @@ type BuilderPromptConfig = PromptConfig & {
 };
 
 const DEFAULT_FEEDBACK_BEHAVIOR: FeedbackBehaviorConfig = {
-  lengthPreset: 'medium',
+  lengthPreset: 'short',
   tonePreset: 'balanced',
   englishLevelPreset: 'standard',
   format: 'paragraph',
@@ -232,6 +235,8 @@ type OptimizationIteration = {
   id: string;
   createdAt: string;
   feedback: string;
+  rubricFeedback?: string;
+  feedbackSettingFeedback?: string;
   baselineVersionId: string | null;
   baselineConfig: BuilderPromptConfig;
   revisedConfig: BuilderPromptConfig;
@@ -293,6 +298,7 @@ type CriterionMetric = {
 type EssayItem = {
   id: string;
   text: string;
+  pdfUrl?: string;
 };
 
 type SetRuntimeState = {
@@ -452,6 +458,10 @@ function normalizeSet(raw: EditableSet): EditableSet {
       id: iteration.id || crypto.randomUUID(),
       createdAt: iteration.createdAt || new Date().toISOString(),
       feedback: iteration.feedback || '',
+      rubricFeedback: iteration.rubricFeedback || '',
+      feedbackSettingFeedback: iteration.feedbackSettingFeedback || '',
+      importedToBuilder: iteration.importedToBuilder || false,
+      comparisonResults: iteration.comparisonResults || undefined,
       baselineVersionId: iteration.baselineVersionId || null,
       baselineConfig: {
         ...fallback,
@@ -1142,7 +1152,7 @@ function IterationConfigReviewEditor({
               ].map((option) => (
                 <span
                   key={`baseline-format-${option.value}`}
-                  className={`inline-flex rounded-full border px-3 py-1 text-xs ${baselineBehavior.format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs ${baselineBehavior.format === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
                 >
                   {option.label}
                 </span>
@@ -1153,7 +1163,7 @@ function IterationConfigReviewEditor({
               {LENGTH_TAG_OPTIONS.map((option) => (
                 <span
                   key={`baseline-length-${option.value}`}
-                  className={`inline-flex rounded-full border px-3 py-1 text-xs ${baselineBehavior.lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs ${baselineBehavior.lengthPreset === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
                 >
                   {option.label}
                 </span>
@@ -1174,14 +1184,14 @@ function IterationConfigReviewEditor({
                     key={`iteration-format-${option.value}`}
                     type="button"
                     onClick={() => updateFeedbackBehavior({ format: option.value })}
-                    className={`rounded-full border px-3 py-1 text-xs ${revisedBehavior.format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                    className={`rounded-full border px-3 py-1 text-xs ${revisedBehavior.format === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                   >
                     {option.label}
                   </button>
                 ) : (
                   <span
                     key={`iteration-format-${option.value}`}
-                    className={`inline-flex rounded-full border px-3 py-1 text-xs ${revisedBehavior.format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs ${revisedBehavior.format === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
                   >
                     {option.label}
                   </span>
@@ -1196,14 +1206,14 @@ function IterationConfigReviewEditor({
                     key={`iteration-length-${option.value}`}
                     type="button"
                     onClick={() => updateFeedbackBehavior({ lengthPreset: option.value })}
-                    className={`rounded-full border px-3 py-1 text-xs ${revisedBehavior.lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                    className={`rounded-full border px-3 py-1 text-xs ${revisedBehavior.lengthPreset === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                   >
                     {option.label}
                   </button>
                 ) : (
                   <span
                     key={`iteration-length-${option.value}`}
-                    className={`inline-flex rounded-full border px-3 py-1 text-xs ${revisedBehavior.lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs ${revisedBehavior.lengthPreset === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
                   >
                     {option.label}
                   </span>
@@ -1638,10 +1648,19 @@ export default function PromptPlayground() {
   const [runCount, setRunCount] = useState(1);
   const [runMenuOpen, setRunMenuOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [gradingMode, setGradingMode] = useState<'single' | 'compare' | 'consistency'>('single');
+  const [gradingMode, setGradingMode] = useState<'single' | 'multiple' | 'consistency'>('single');
+  const [essayTextMode, setEssayTextMode] = useState<Record<string, 'edit' | 'pdf'>>({});
+  const [essayHeight, setEssayHeight] = useState(220);
+  const [expandedPdfUrl, setExpandedPdfUrl] = useState<string | null>(null);
+  const [optimizerEssayHeight, setOptimizerEssayHeight] = useState(180);
+  const [optimizerSelectedEssayId, setOptimizerSelectedEssayId] = useState<string>('');
+  const [compareProgress, setCompareProgress] = useState({ done: 0, total: 0, configsDone: 0, configsTotal: 0 });
   const [configCollapsed, setConfigCollapsed] = useState(false);
+  const [preOptimizerConfig, setPreOptimizerConfig] = useState<BuilderPromptConfig | null>(null);
+  const [optimizerChangedSections, setOptimizerChangedSections] = useState<{ rubric: boolean; feedback: boolean }>({ rubric: false, feedback: false });
 
-  const [optimizerGoal, setOptimizerGoal] = useState('');
+  const [rubricGoal, setRubricGoal] = useState('');
+  const [feedbackSettingGoal, setFeedbackSettingGoal] = useState('');
   const [optimizedConfig, setOptimizedConfig] = useState<BuilderPromptConfig | null>(null);
   const [optimizationLoading, setOptimizationLoading] = useState(false);
   const [optimizationError, setOptimizationError] = useState<string | null>(null);
@@ -2011,6 +2030,15 @@ export default function PromptPlayground() {
         ? await (await import('@/lib/pdf-utils')).extractTextFromPdf(file)
         : await file.text();
       updateEssay(id, text || '');
+      if (isPdf) {
+        const url = URL.createObjectURL(file);
+        setEssays((prev) => prev.map((e) => (e.id === id ? { ...e, pdfUrl: url } : e)));
+        // Default to PDF view in single mode, text in multiple
+        setEssayTextMode((prev) => ({ ...prev, [id]: 'edit' }));
+      } else {
+        setEssays((prev) => prev.map((e) => (e.id === id ? { ...e, pdfUrl: undefined } : e)));
+        setEssayTextMode((prev) => ({ ...prev, [id]: 'edit' }));
+      }
     } catch {
       setGradingError('Failed to extract text from uploaded file');
     }
@@ -2023,7 +2051,7 @@ export default function PromptPlayground() {
 
     // Derive effective essays and run count from mode
     const effectiveEssays =
-      gradingMode === 'compare'
+      gradingMode === 'multiple'
         ? essays.slice(0, Math.min(essays.length, 3)).filter((e) => e.text.trim())
         : essays.slice(0, 1);
     const effectiveRunCount = gradingMode === 'consistency'
@@ -2138,6 +2166,8 @@ export default function PromptPlayground() {
     persistSets(next, activeSetId);
     setSelectedVersionId(nextVersion.id);
     setLastSavedConfig(cloneConfig(config));
+    setPreOptimizerConfig(null);
+    setOptimizerChangedSections({ rubric: false, feedback: false });
     setSavedPulse(true);
     setTimeout(() => setSavedPulse(false), 1500);
   };
@@ -2196,12 +2226,12 @@ export default function PromptPlayground() {
       .filter(Boolean);
 
   const hasFeedbackTag = (instruction: string): boolean => {
-    const parts = normalizeFeedbackParagraphs(optimizerGoal);
+    const parts = normalizeFeedbackParagraphs(feedbackSettingGoal);
     return parts.includes(instruction.trim());
   };
 
   const toggleFeedbackTag = (instruction: string) => {
-    setOptimizerGoal((prev) => {
+    setFeedbackSettingGoal((prev) => {
       const parts = normalizeFeedbackParagraphs(prev);
       const target = instruction.trim();
       const exists = parts.includes(target);
@@ -2211,14 +2241,17 @@ export default function PromptPlayground() {
   };
 
   const persistOptimizationIteration = useCallback(
-    (feedback: string, baselineConfig: BuilderPromptConfig, revisedConfig: BuilderPromptConfig) => {
+    (rubricFeedback: string, feedbackSettingFeedback: string, baselineConfig: BuilderPromptConfig, revisedConfig: BuilderPromptConfig) => {
       if (!activeSetId) return;
 
+      const combinedFeedback = [rubricFeedback, feedbackSettingFeedback].filter(Boolean).join('\n\n---\n\n');
       const now = new Date().toISOString();
       const iteration: OptimizationIteration = {
         id: crypto.randomUUID(),
         createdAt: now,
-        feedback,
+        feedback: combinedFeedback,
+        rubricFeedback,
+        feedbackSettingFeedback,
         baselineVersionId: activeSet?.currentVersionId || null,
         baselineConfig: cloneConfig(baselineConfig),
         revisedConfig: cloneConfig(revisedConfig),
@@ -2241,8 +2274,9 @@ export default function PromptPlayground() {
   );
 
   const generateOptimizedWithLLM = async () => {
-    const feedback = optimizerGoal.trim();
-    if (!feedback) return;
+    const rubricFb = rubricGoal.trim();
+    const feedbackFb = feedbackSettingGoal.trim();
+    if (!rubricFb && !feedbackFb) return;
 
     const baseConfig = optimizedConfig || sessionIterations[0]?.revisedConfig || config;
 
@@ -2250,33 +2284,58 @@ export default function PromptPlayground() {
     setOptimizationError(null);
 
     try {
-      const optimizerInput: Record<string, unknown> = {
-        criteria: baseConfig.criteria,
-        feedbackInstructionText: baseConfig.feedbackInstructionText || '',
-      };
-      const optimized = await optimizePlaygroundConfig(optimizerInput, feedback);
-      const revisedPatch = optimized.revisedConfig as Partial<BuilderPromptConfig>;
+      let revisedCriteria = baseConfig.criteria;
+      let revisedFeedbackText = baseConfig.feedbackInstructionText || '';
+
+      // Run both optimizations in parallel to stay within Netlify timeout
+      const [rubricResult, feedbackResult] = await Promise.all([
+        rubricFb
+          ? optimizePlaygroundConfig(
+              { criteria: baseConfig.criteria },
+              `Focus ONLY on improving the rubric criteria and scoring levels. Do NOT change feedbackInstructionText.\n\n${rubricFb}`
+            )
+          : null,
+        feedbackFb
+          ? optimizePlaygroundConfig(
+              { feedbackInstructionText: baseConfig.feedbackInstructionText || '' },
+              `Focus ONLY on improving the feedbackInstructionText (additional feedback instruction). Do NOT change criteria.\n\n${feedbackFb}`
+            )
+          : null,
+      ]);
+
+      if (rubricResult) {
+        const rubricPatch = rubricResult.revisedConfig as Partial<BuilderPromptConfig>;
+        if (Array.isArray(rubricPatch.criteria) && rubricPatch.criteria.length > 0) {
+          revisedCriteria = rubricPatch.criteria as RubricCriterion[];
+        }
+      }
+
+      if (feedbackResult) {
+        const feedbackPatch = feedbackResult.revisedConfig as Partial<BuilderPromptConfig>;
+        if (typeof feedbackPatch.feedbackInstructionText === 'string') {
+          revisedFeedbackText = feedbackPatch.feedbackInstructionText;
+        }
+      }
+
       const revised: BuilderPromptConfig = {
         ...baseConfig,
-        criteria: Array.isArray(revisedPatch.criteria) && revisedPatch.criteria.length > 0
-          ? (revisedPatch.criteria as RubricCriterion[])
-          : baseConfig.criteria,
-        feedbackInstructionText:
-          typeof revisedPatch.feedbackInstructionText === 'string'
-            ? revisedPatch.feedbackInstructionText
-            : baseConfig.feedbackInstructionText,
+        criteria: revisedCriteria,
+        feedbackInstructionText: revisedFeedbackText,
       };
       setOptimizedConfig(revised);
-      persistOptimizationIteration(feedback, baseConfig, revised);
-      setOptimizerGoal('');
+      persistOptimizationIteration(rubricFb, feedbackFb, baseConfig, revised);
+      setRubricGoal('');
+      setFeedbackSettingGoal('');
       setBaselineResults(null);
       setOptimizedResults(null);
       setCompareError(null);
     } catch (error) {
-      const fallback = draftOptimizedConfig(baseConfig, feedback);
+      const combinedFeedback = [rubricFb, feedbackFb].filter(Boolean).join('\n\n');
+      const fallback = draftOptimizedConfig(baseConfig, combinedFeedback);
       setOptimizedConfig(fallback);
-      persistOptimizationIteration(feedback, baseConfig, fallback);
-      setOptimizerGoal('');
+      persistOptimizationIteration(rubricFb, feedbackFb, baseConfig, fallback);
+      setRubricGoal('');
+      setFeedbackSettingGoal('');
       setOptimizationError(
         error instanceof Error ? `${error.message} (fallback draft used)` : 'Optimization failed (fallback draft used)'
       );
@@ -2362,6 +2421,15 @@ export default function PromptPlayground() {
     setLastSavedConfig(cloneConfig(target));
     persistSets(nextSets, activeSetId);
     setSelectedVersionId(nextVersion.id);
+
+    // Flag which sections changed from the pre-optimizer config
+    if (preOptimizerConfig) {
+      setOptimizerChangedSections({
+        rubric: JSON.stringify(target.criteria) !== JSON.stringify(preOptimizerConfig.criteria),
+        feedback: target.feedbackInstructionText !== preOptimizerConfig.feedbackInstructionText,
+      });
+    }
+
     setView('builder');
     setToastMessage('Config imported as a new version in Prompt Builder');
     setTimeout(() => setToastMessage(null), 3000);
@@ -2493,33 +2561,54 @@ export default function PromptPlayground() {
 
   const renderFeedbackComposer = () => (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="space-y-1.5">
-        <h2 className="text-xl font-semibold tracking-tight text-slate-900">What would you like to improve?</h2>
-      </div>
+      <h2 className="mb-4 text-xl font-semibold tracking-tight text-slate-900">What would you like to improve?</h2>
 
-      <div className="mt-4 grid gap-3">
-        <div className="grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start">
-          <p className="pt-1 text-sm font-medium text-slate-700">Scoring preferences</p>
-          <div className="flex flex-wrap gap-2">
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Rubric improvement */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <FileText className="h-4 w-4 text-slate-500" />
+            <p className="text-sm font-semibold text-slate-800">Improve Rubric</p>
+          </div>
+          <div className="mb-3 flex flex-wrap gap-2">
             {OPTIMIZER_FEEDBACK_TAGS.filter((tag) => tag.group === 'scoring').map((tag) => {
-              const selected = hasFeedbackTag(tag.instruction);
+              const parts = normalizeFeedbackParagraphs(rubricGoal);
+              const selected = parts.includes(tag.instruction.trim());
               return (
                 <button
                   key={tag.label}
                   type="button"
-                  onClick={() => toggleFeedbackTag(tag.instruction)}
-                  className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${selected ? 'border-slate-600 bg-slate-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                  onClick={() => {
+                    setRubricGoal((prev) => {
+                      const p = normalizeFeedbackParagraphs(prev);
+                      const t = tag.instruction.trim();
+                      const next = p.includes(t) ? p.filter((r) => r !== t) : [...p, t];
+                      return next.join('\n\n');
+                    });
+                  }}
+                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${selected ? 'border-slate-600 bg-slate-700 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'}`}
                 >
                   {tag.label}
                 </button>
               );
             })}
           </div>
+          <textarea
+            rows={4}
+            value={rubricGoal}
+            onChange={(e) => setRubricGoal(e.target.value)}
+            placeholder="Describe how to improve the rubric criteria and scoring levels..."
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-slate-300"
+          />
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-start">
-          <p className="pt-1 text-sm font-medium text-slate-700">Feedback style</p>
-          <div className="flex flex-wrap gap-2">
+        {/* Feedback setting improvement */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-slate-500" />
+            <p className="text-sm font-semibold text-slate-800">Improve Feedback Setting</p>
+          </div>
+          <div className="mb-3 flex flex-wrap gap-2">
             {OPTIMIZER_FEEDBACK_TAGS.filter((tag) => tag.group === 'feedback').map((tag) => {
               const selected = hasFeedbackTag(tag.instruction);
               return (
@@ -2527,44 +2616,42 @@ export default function PromptPlayground() {
                   key={tag.label}
                   type="button"
                   onClick={() => toggleFeedbackTag(tag.instruction)}
-                  className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${selected ? 'border-slate-600 bg-slate-700 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${selected ? 'border-slate-600 bg-slate-700 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'}`}
                 >
                   {tag.label}
                 </button>
               );
             })}
           </div>
+          <textarea
+            rows={4}
+            value={feedbackSettingGoal}
+            onChange={(e) => setFeedbackSettingGoal(e.target.value)}
+            placeholder="Describe how to improve the feedback instruction and style..."
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 focus:outline-none focus:ring-2 focus:ring-slate-300"
+          />
         </div>
       </div>
 
-      <textarea
-        rows={6}
-        value={optimizerGoal}
-        onChange={(e) => setOptimizerGoal(e.target.value)}
-        placeholder="Describe how you want to revise the latest config for the next iteration."
-        className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-      />
-
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-4 flex items-center gap-3">
         <button
           onClick={generateOptimizedWithLLM}
-          disabled={!optimizerGoal.trim() || optimizationLoading}
-          className="inline-flex h-11 items-center gap-2 rounded-xl bg-slate-700 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={(!rubricGoal.trim() && !feedbackSettingGoal.trim()) || optimizationLoading}
+          className="inline-flex h-11 items-center gap-2 rounded-xl bg-slate-700 px-5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {optimizationLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
           {optimizationLoading ? 'Generating…' : 'Generate Revision'}
         </button>
-        {optimizerGoal.trim() && !optimizationLoading && (
+        {(rubricGoal.trim() || feedbackSettingGoal.trim()) && !optimizationLoading && (
           <button
             type="button"
-            onClick={() => setOptimizerGoal('')}
+            onClick={() => { setRubricGoal(''); setFeedbackSettingGoal(''); }}
             className="text-xs text-slate-400 hover:text-slate-600"
           >
-            Clear
+            Clear all
           </button>
         )}
       </div>
-
     </div>
   );
 
@@ -2582,39 +2669,77 @@ export default function PromptPlayground() {
     setBaselineResults(null);
     setOptimizedResults(null);
 
+    const toTestResults = (rows: Array<{ name: string; score: number; feedback: string; feedbackParts?: string[]; evidenceQuotes: string[] }>): TestResult[] =>
+      rows.map((row) => ({
+        criterionName: row.name,
+        justification: Array.isArray(row.feedbackParts) && row.feedbackParts.length > 0
+          ? row.feedbackParts
+          : row.feedback
+          ? [row.feedback]
+          : [],
+        evidenceQuotes: row.evidenceQuotes.map((quote) => ({ quote })),
+        score: row.score,
+      }));
+
     try {
-      const compared = await comparePlaygroundGrades({
-        essayText: primaryEssayText,
-        originalConfig: {
-          ...baselineConfig,
-          promptSlots: buildPromptSlotsFromConfig(baselineConfig),
-          styleOverrides: buildStyleOverridesFromConfig(baselineConfig),
-          assessmentType: getAssessmentTypeFromConfig(baselineConfig),
-          assessmentLength: getAssessmentLengthFromConfig(baselineConfig),
-        },
-        revisedConfig: {
-          ...revisedConfig,
-          promptSlots: buildPromptSlotsFromConfig(revisedConfig),
-          styleOverrides: buildStyleOverridesFromConfig(revisedConfig),
-          assessmentType: getAssessmentTypeFromConfig(revisedConfig),
-          assessmentLength: getAssessmentLengthFromConfig(revisedConfig),
-        },
-      });
+      // Check if we already have grading results for the baseline config from a previous iteration
+      const baselineSignature = getConfigSignature(baselineConfig);
+      let cachedBaseline: TestResult[] | null = null;
 
-      const toTestResults = (rows: Array<{ name: string; score: number; feedback: string; feedbackParts?: string[]; evidenceQuotes: string[] }>): TestResult[] =>
-        rows.map((row) => ({
-          criterionName: row.name,
-          justification: Array.isArray(row.feedbackParts) && row.feedbackParts.length > 0
-            ? row.feedbackParts
-            : row.feedback
-            ? [row.feedback]
-            : [],
-          evidenceQuotes: row.evidenceQuotes.map((quote) => ({ quote })),
-          score: row.score,
-        }));
+      // Look through previous iterations for matching revised config results
+      for (const prevIteration of sessionIterations) {
+        if (prevIteration.id === targetIterationId) continue;
+        if (prevIteration.comparisonResults?.revised && getConfigSignature(prevIteration.revisedConfig) === baselineSignature) {
+          const prevEssay = iterationLastRunEssay[prevIteration.id];
+          if (prevEssay === primaryEssayText) {
+            cachedBaseline = prevIteration.comparisonResults.revised;
+            break;
+          }
+        }
+        if (prevIteration.comparisonResults?.baseline && getConfigSignature(prevIteration.baselineConfig) === baselineSignature) {
+          const prevEssay = iterationLastRunEssay[prevIteration.id];
+          if (prevEssay === primaryEssayText) {
+            cachedBaseline = prevIteration.comparisonResults.baseline;
+            break;
+          }
+        }
+      }
 
-      const baseline = toTestResults(compared.original.criteria);
-      const revised = toTestResults(compared.revised.criteria);
+      let baseline: TestResult[];
+      let revised: TestResult[];
+
+      if (cachedBaseline) {
+        // Reuse cached baseline, only grade the revised config
+        baseline = cachedBaseline;
+        const totalCriteria = revisedConfig.criteria.length;
+        let done = 0;
+        setCompareProgress({ done: 0, total: totalCriteria, configsDone: 0, configsTotal: 1 });
+        const gradedRevised = await runGrade(revisedConfig, primaryEssayText, null, () => {
+          done += 1;
+          setCompareProgress({ done, total: totalCriteria, configsDone: 0, configsTotal: 1 });
+        });
+        revised = gradedRevised.results;
+        setCompareProgress({ done: totalCriteria, total: totalCriteria, configsDone: 1, configsTotal: 1 });
+      } else {
+        // No cached results — grade both configs with per-criterion progress
+        const totalCriteria = baselineConfig.criteria.length + revisedConfig.criteria.length;
+        let done = 0;
+        setCompareProgress({ done: 0, total: totalCriteria, configsDone: 0, configsTotal: 2 });
+
+        const gradedBaseline = await runGrade(baselineConfig, primaryEssayText, null, () => {
+          done += 1;
+          setCompareProgress({ done, total: totalCriteria, configsDone: 0, configsTotal: 2 });
+        });
+        baseline = gradedBaseline.results;
+        setCompareProgress({ done, total: totalCriteria, configsDone: 1, configsTotal: 2 });
+
+        const gradedRevised = await runGrade(revisedConfig, primaryEssayText, null, () => {
+          done += 1;
+          setCompareProgress({ done, total: totalCriteria, configsDone: 1, configsTotal: 2 });
+        });
+        revised = gradedRevised.results;
+        setCompareProgress({ done: totalCriteria, total: totalCriteria, configsDone: 2, configsTotal: 2 });
+      }
 
       setBaselineResults(baseline);
       setOptimizedResults(revised);
@@ -2689,6 +2814,7 @@ export default function PromptPlayground() {
 
       return nextConfig;
     });
+    setOptimizerChangedSections((p) => ({ ...p, feedback: false }));
   };
 
   const isSetupMode = !!activeSet && !activeSet.configured;
@@ -2906,7 +3032,7 @@ export default function PromptPlayground() {
                             key={`setup-format-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ format: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2921,7 +3047,7 @@ export default function PromptPlayground() {
                             key={`setup-length-${option.value}`}
                             type="button"
                             onClick={() => updateFeedbackBehaviorAndImport({ lengthPreset: option.value })}
-                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                            className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                           >
                             {option.label}
                           </button>
@@ -2939,10 +3065,9 @@ export default function PromptPlayground() {
                             feedbackInstructionText: e.target.value,
                           }))
                         }
-                        placeholder="Click tags to insert predefined prompts. You can edit this text freely."
+                        placeholder="For example: Clear B2 English, polite and supportive. Start with a positive comment, then give simple suggestions."
                         className="w-full rounded-md border border-slate-300 bg-white/80 px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
                       />
-                      <p className="mt-2 text-[11px] text-slate-600">Click tags to insert predefined prompts. You can edit this text freely.</p>
                     </div>
                   </div>
                 </details>
@@ -3055,26 +3180,32 @@ export default function PromptPlayground() {
 
                     <div className="flex min-h-0 flex-1 flex-col">
                       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+                      {(() => {
+                        const rubricChanged = optimizerChangedSections.rubric;
+                        const feedbackChanged = optimizerChangedSections.feedback;
+                        return (<>
                       <details open className="rounded-xl border border-slate-200 bg-white">
-                        <summary className="flex cursor-pointer list-none items-center justify-between bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+                        <summary className={`flex cursor-pointer list-none items-center justify-between px-6 py-3 text-sm font-bold text-slate-800 ${rubricChanged ? 'bg-indigo-50' : 'bg-[var(--card-border)]'}`}>
                           <span className="inline-flex items-center gap-1.5 text-slate-900">
                             <FileText className="h-4 w-4 text-slate-800" />
                             Rubric
+                            {rubricChanged && <span className="ml-1.5 rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-semibold text-white">Changed</span>}
                           </span>
                         </summary>
                         <div className="border-t border-slate-200 px-6 pb-4 pt-3">
                           <RubricTable
                             criteria={config.criteria}
-                            onChange={(criteria) => setConfig((c) => ({ ...c, criteria }))}
+                            onChange={(criteria) => { setConfig((c) => ({ ...c, criteria })); setOptimizerChangedSections((p) => ({ ...p, rubric: false })); }}
                           />
                         </div>
                       </details>
 
                       <details open className="rounded-xl border border-slate-200 bg-white">
-                        <summary className="cursor-pointer list-none bg-[var(--card-border)] px-6 py-3 text-sm font-bold text-slate-800">
+                        <summary className={`cursor-pointer list-none px-6 py-3 text-sm font-bold text-slate-800 ${feedbackChanged ? 'bg-indigo-50' : 'bg-[var(--card-border)]'}`}>
                           <span className="inline-flex items-center gap-1.5 text-slate-900">
                             <MessageSquare className="h-4 w-4 text-slate-800" />
                             Feedback Setting
+                            {feedbackChanged && <span className="ml-1.5 rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-semibold text-white">Changed</span>}
                           </span>
                         </summary>
                         <div className="space-y-3 border-t border-amber-200/80 px-6 pb-4 pt-3">
@@ -3089,7 +3220,7 @@ export default function PromptPlayground() {
                                   key={`builder-format-${option.value}`}
                                   type="button"
                                   onClick={() => updateFeedbackBehaviorAndImport({ format: option.value })}
-                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).format === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                                 >
                                   {option.label}
                                 </button>
@@ -3104,7 +3235,7 @@ export default function PromptPlayground() {
                                   key={`builder-length-${option.value}`}
                                   type="button"
                                   onClick={() => updateFeedbackBehaviorAndImport({ lengthPreset: option.value })}
-                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-slate-300 bg-white text-slate-900' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                                  className={`rounded-full border px-3 py-1 text-xs ${getFeedbackBehavior(config).lengthPreset === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
                                 >
                                   {option.label}
                                 </button>
@@ -3116,19 +3247,21 @@ export default function PromptPlayground() {
                             <textarea
                               rows={5}
                               value={config.feedbackInstructionText || ''}
-                              onChange={(e) =>
+                              onChange={(e) => {
                                 setConfig((c) => ({
                                   ...c,
                                   feedbackInstructionText: e.target.value,
-                                }))
-                              }
-                              placeholder="Click tags to insert predefined prompts. You can edit this text freely."
+                                }));
+                                setOptimizerChangedSections((p) => ({ ...p, feedback: false }));
+                              }}
+                              placeholder="For example: Clear B2 English, polite and supportive. Start with a positive comment, then give simple suggestions."
                               className="w-full rounded-md border border-slate-300 bg-white/80 px-2 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
                             />
-                            <p className="mt-2 text-[11px] text-slate-600">Click tags to insert predefined prompts. You can edit this text freely.</p>
                           </div>
                         </div>
                       </details>
+
+                      </>); })()}
 
                       {!validation.valid && (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
@@ -3162,7 +3295,7 @@ export default function PromptPlayground() {
                 <div className="mb-4 flex border-b border-slate-200">
                   {([
                     { key: 'single', label: 'One Essay', icon: FileText },
-                    { key: 'compare', label: 'Compare', icon: Files },
+                    { key: 'multiple', label: 'multiple essay', icon: Files },
                     { key: 'consistency', label: 'Consistency', icon: RefreshCw },
                   ] as const).map((tab) => {
                     const Icon = tab.icon;
@@ -3173,7 +3306,7 @@ export default function PromptPlayground() {
                         onClick={() => {
                           setGradingMode(tab.key);
                           setGradingError(null);
-                          if (tab.key === 'compare' && essays.length < 2) {
+                          if (tab.key === 'multiple' && essays.length < 2) {
                             setEssays((prev) => [...prev, { id: crypto.randomUUID(), text: '' }]);
                           }
                           if (tab.key === 'consistency') setRunCount(2);
@@ -3196,7 +3329,7 @@ export default function PromptPlayground() {
                 {/* Student Essays */}
                 <div className="mb-4 space-y-3">
                   {(() => {
-                    const visibleEssays = gradingMode === 'compare' ? essays : essays.slice(0, 1);
+                    const visibleEssays = gradingMode === 'multiple' ? essays : essays.slice(0, 1);
                     return (
                       <div className="flex gap-3">
                         <div className={`grid flex-1 gap-3 ${visibleEssays.length === 1 ? 'grid-cols-1' : visibleEssays.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
@@ -3222,7 +3355,20 @@ export default function PromptPlayground() {
                                     Upload
                                   </span>
                                 </label>
-                                {gradingMode === 'compare' && essays.length > 2 && (
+                                {essay.pdfUrl && (
+                                  <button
+                                    onClick={() => setEssayTextMode((prev) => {
+                                      const current = prev[essay.id] || 'edit';
+                                      return { ...prev, [essay.id]: current === 'edit' ? 'pdf' : 'edit' };
+                                    })}
+                                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100"
+                                    title={(essayTextMode[essay.id] || 'edit') === 'edit' ? 'Show PDF' : 'Show text'}
+                                  >
+                                    <Type className="h-3 w-3" />
+                                    {(essayTextMode[essay.id] || 'edit') === 'edit' ? 'PDF' : 'Edit'}
+                                  </button>
+                                )}
+                                {gradingMode === 'multiple' && essays.length > 2 && (
                                   <button
                                     onClick={() => removeEssay(essay.id)}
                                     disabled={gradingLoading}
@@ -3234,17 +3380,36 @@ export default function PromptPlayground() {
                                 )}
                               </div>
                             </div>
-                            <textarea
-                              value={essay.text}
-                              onChange={(e) => updateEssay(essay.id, e.target.value)}
-                              placeholder="Paste or type the student essay here..."
-                              rows={8}
-                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                            />
+                            {(() => {
+                              const viewMode = essayTextMode[essay.id] || 'edit';
+                              if (viewMode === 'pdf' && essay.pdfUrl) {
+                                return (
+                                  <div className={`relative overflow-hidden rounded-lg border border-slate-200 ${visibleEssays.length === 1 ? 'p-2' : ''}`} style={{ height: essayHeight }}>
+                                    <PdfViewer url={essay.pdfUrl} initialScale={1.45} />
+                                    <button
+                                      onClick={() => setExpandedPdfUrl(essay.pdfUrl!)}
+                                      className="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white/90 text-slate-500 shadow-sm hover:bg-white hover:text-slate-700"
+                                      title="Expand PDF"
+                                    >
+                                      <Maximize2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <textarea
+                                  value={essay.text}
+                                  onChange={(e) => updateEssay(essay.id, e.target.value)}
+                                  placeholder="Paste or type the student essay here..."
+                                  className={`w-full whitespace-pre-wrap rounded-lg border border-slate-200 bg-white font-serif text-[15px] leading-7 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 ${visibleEssays.length === 1 ? 'px-8 py-5' : 'px-4 py-3'}`}
+                                  style={{ height: essayHeight, resize: 'none' }}
+                                />
+                              );
+                            })()}
                           </div>
                         ))}
                         </div>
-                        {gradingMode === 'compare' && essays.length < 3 && (
+                        {gradingMode === 'multiple' && essays.length < 3 && (
                           <button
                             onClick={addEssay}
                             disabled={gradingLoading}
@@ -3257,6 +3422,28 @@ export default function PromptPlayground() {
                       </div>
                     );
                   })()}
+
+                  {/* Resize handle */}
+                  <div
+                    className="mx-auto flex h-3 w-16 cursor-row-resize items-center justify-center rounded-full hover:bg-slate-100"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      const startY = e.clientY;
+                      const startH = essayHeight;
+                      const onMove = (ev: MouseEvent) => {
+                        setEssayHeight(Math.max(120, Math.min(600, startH + ev.clientY - startY)));
+                      };
+                      const onUp = () => {
+                        window.removeEventListener('mousemove', onMove);
+                        window.removeEventListener('mouseup', onUp);
+                      };
+                      window.addEventListener('mousemove', onMove);
+                      window.addEventListener('mouseup', onUp);
+                    }}
+                    title="Drag to resize"
+                  >
+                    <div className="h-1 w-8 rounded-full bg-slate-300" />
+                  </div>
 
                   <div className="flex flex-col gap-2">
                     {gradingMode === 'consistency' ? (
@@ -3309,7 +3496,7 @@ export default function PromptPlayground() {
                   <h2 className="text-sm font-medium">
                     Results
                     {gradingMode === 'consistency' && runCount > 1 ? ` (${runCount} runs)` : ''}
-                    {gradingMode === 'compare' && runResultsByEssay.filter((r) => r.length > 0).length > 1 ? ` (${runResultsByEssay.filter((r) => r.length > 0).length} essays)` : ''}
+                    {gradingMode === 'multiple' && runResultsByEssay.filter((r) => r.length > 0).length > 1 ? ` (${runResultsByEssay.filter((r) => r.length > 0).length} essays)` : ''}
                   </h2>
                   <button
                     onClick={() => {
@@ -3319,7 +3506,8 @@ export default function PromptPlayground() {
                       setCompareError(null);
                       setOptimizerSessionIterationIds([]);
                       setSelectedIterationId('');
-                      setOptimizerGoal('');
+                      setRubricGoal('');
+                      setFeedbackSettingGoal('');
                       setOptimizedConfig(null);
                       setComparisonByIteration({});
                       setIterationLastComparedConfigSignature({});
@@ -3330,6 +3518,7 @@ export default function PromptPlayground() {
                       if (primaryEssayText.trim()) {
                         setPrimaryEssayText(primaryEssayText);
                       }
+                      setPreOptimizerConfig(cloneConfig(config));
                       setView('optimizer');
                     }}
                     disabled={gradingLoading}
@@ -3575,32 +3764,49 @@ export default function PromptPlayground() {
                         className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
                       >
                       {/* What was improved */}
-                      {iteration.feedback && (
-                        <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 p-3">
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">What was improved</p>
-                          <div className="flex flex-wrap gap-2">
-                            {OPTIMIZER_FEEDBACK_TAGS.filter((tag) =>
-                              iteration.feedback.split('\n\n').map((s) => s.trim()).includes(tag.instruction.trim())
-                            ).map((tag) => (
-                              <span
-                                key={tag.label}
-                                className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700"
-                              >
-                                {tag.label}
-                              </span>
-                            ))}
-                          </div>
-                          {/* Show any custom text not matching a tag */}
-                          {(() => {
-                            const tagInstructions = new Set(OPTIMIZER_FEEDBACK_TAGS.map((t) => t.instruction.trim()));
-                            const customParts = iteration.feedback
-                              .split('\n\n')
-                              .map((s) => s.trim())
-                              .filter((s) => s && !tagInstructions.has(s));
-                            return customParts.length > 0 ? (
-                              <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-600">{customParts.join('\n\n')}</p>
-                            ) : null;
-                          })()}
+                      {(iteration.rubricFeedback || iteration.feedbackSettingFeedback || iteration.feedback) && (
+                        <div className="mb-4 grid gap-3 lg:grid-cols-2">
+                          {(iteration.rubricFeedback || (!iteration.feedbackSettingFeedback && iteration.feedback)) && (
+                            <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                              <div className="mb-2 flex items-center gap-1.5">
+                                <FileText className="h-3.5 w-3.5 text-slate-400" />
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rubric Changes</p>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {OPTIMIZER_FEEDBACK_TAGS.filter((tag) => tag.group === 'scoring' &&
+                                  (iteration.rubricFeedback || iteration.feedback || '').split('\n\n').map((s) => s.trim()).includes(tag.instruction.trim())
+                                ).map((tag) => (
+                                  <span key={tag.label} className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-medium text-slate-700">{tag.label}</span>
+                                ))}
+                              </div>
+                              {(() => {
+                                const text = iteration.rubricFeedback || iteration.feedback || '';
+                                const tagSet = new Set(OPTIMIZER_FEEDBACK_TAGS.map((t) => t.instruction.trim()));
+                                const custom = text.split('\n\n').map((s) => s.trim()).filter((s) => s && !tagSet.has(s) && s !== '---');
+                                return custom.length > 0 ? <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-600">{custom.join('\n\n')}</p> : null;
+                              })()}
+                            </div>
+                          )}
+                          {iteration.feedbackSettingFeedback && (
+                            <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                              <div className="mb-2 flex items-center gap-1.5">
+                                <MessageSquare className="h-3.5 w-3.5 text-slate-400" />
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Feedback Setting Changes</p>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {OPTIMIZER_FEEDBACK_TAGS.filter((tag) => tag.group === 'feedback' &&
+                                  iteration.feedbackSettingFeedback!.split('\n\n').map((s) => s.trim()).includes(tag.instruction.trim())
+                                ).map((tag) => (
+                                  <span key={tag.label} className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-xs font-medium text-slate-700">{tag.label}</span>
+                                ))}
+                              </div>
+                              {(() => {
+                                const tagSet = new Set(OPTIMIZER_FEEDBACK_TAGS.map((t) => t.instruction.trim()));
+                                const custom = iteration.feedbackSettingFeedback!.split('\n\n').map((s) => s.trim()).filter((s) => s && !tagSet.has(s));
+                                return custom.length > 0 ? <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-600">{custom.join('\n\n')}</p> : null;
+                              })()}
+                            </div>
+                          )}
                         </div>
                       )}
                       {/* Config side-by-side */}
@@ -3629,24 +3835,78 @@ export default function PromptPlayground() {
 
                       {/* Run Comparison block */}
                       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Run Comparison</p>
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Student Essay</p>
+                          {essays.filter((e) => e.text.trim()).length > 0 && (
+                            <select
+                              value={optimizerSelectedEssayId}
+                              onChange={(e) => {
+                                const id = e.target.value;
+                                setOptimizerSelectedEssayId(id);
+                                if (id) {
+                                  const selected = essays.find((es) => es.id === id);
+                                  if (selected) setPrimaryEssayText(selected.text);
+                                }
+                              }}
+                              className="max-w-[260px] truncate rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-300"
+                            >
+                              <option value="">Select essay from playground</option>
+                              {essays.filter((e) => e.text.trim()).map((e, i) => (
+                                <option key={e.id} value={e.id}>
+                                  Essay {i + 1} — {e.text.trim().slice(0, 40)}{e.text.trim().length > 40 ? '...' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
                         <textarea
-                          rows={4}
                           value={primaryEssayText}
                           onChange={(e) => setPrimaryEssayText(e.target.value)}
-                          placeholder="Paste the student essay to compare both configs…"
-                          className="mb-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          placeholder="Paste or type the student essay here..."
+                          className="w-full whitespace-pre-wrap rounded-lg border border-slate-200 bg-white px-8 py-4 font-serif text-[15px] leading-7 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                          style={{ height: optimizerEssayHeight, resize: 'none' }}
                         />
-                        <button
-                          onClick={() => runCompareForIteration(iteration.id)}
-                          disabled={!primaryEssayText.trim() || compareLoading || isComparing}
-                          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${isDirty ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                        {/* Resize handle */}
+                        <div
+                          className="mx-auto flex h-3 w-16 cursor-row-resize items-center justify-center rounded-full hover:bg-slate-200"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            const startY = e.clientY;
+                            const startH = optimizerEssayHeight;
+                            const onMove = (ev: MouseEvent) => {
+                              setOptimizerEssayHeight(Math.max(100, Math.min(500, startH + ev.clientY - startY)));
+                            };
+                            const onUp = () => {
+                              window.removeEventListener('mousemove', onMove);
+                              window.removeEventListener('mouseup', onUp);
+                            };
+                            window.addEventListener('mousemove', onMove);
+                            window.addEventListener('mouseup', onUp);
+                          }}
+                          title="Drag to resize"
                         >
-                          {compareIcon}
-                          {compareLabel}
-                        </button>
+                          <div className="h-1 w-8 rounded-full bg-slate-300" />
+                        </div>
+                        <div className="relative mt-2 overflow-hidden rounded-lg">
+                          <button
+                            onClick={() => runCompareForIteration(iteration.id)}
+                            disabled={!primaryEssayText.trim() || compareLoading || isComparing}
+                            className={`relative z-10 inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${isDirty ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-800 hover:bg-slate-900'}`}
+                          >
+                            {isComparing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                            {isComparing && compareProgress.total > 0
+                              ? `Grading... ${compareProgress.configsDone}/${compareProgress.configsTotal}`
+                              : compareLabel}
+                          </button>
+                          {isComparing && compareProgress.total > 0 && (
+                            <div
+                              className="absolute inset-y-0 left-0 bg-indigo-600/30 transition-all duration-300"
+                              style={{ width: `${(compareProgress.done / compareProgress.total) * 100}%` }}
+                            />
+                          )}
+                        </div>
                         {lastAttemptedIterationId === iteration.id && compareError && !iterationCompare && (
-                          <p className="mt-1 text-xs text-red-600">{compareError}</p>
+                          <p className="mt-2 text-xs text-red-600">{compareError}</p>
                         )}
                       </div>
 
@@ -3731,6 +3991,27 @@ export default function PromptPlayground() {
         </div>
       )}
       </div>
+
+      {/* Expanded PDF overlay */}
+      {expandedPdfUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setExpandedPdfUrl(null)}>
+          <div className="relative flex h-[90vh] w-[90vw] max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2">
+              <span className="text-sm font-medium text-slate-600">PDF Viewer</span>
+              <button
+                onClick={() => setExpandedPdfUrl(null)}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <PdfViewer url={expandedPdfUrl} initialScale={1.45} />
+            </div>
+          </div>
+        </div>
+      )}
     </motion.section>
   );
 }
