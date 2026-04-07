@@ -109,6 +109,63 @@ Do not add any other top-level fields.
 `;
 }
 
+export function buildOptimizeRubricPrompt(criteria: unknown[], feedback: string): string {
+  return `You are an expert rubric designer for AI-powered essay grading systems.
+
+Your task: revise the rubric criteria JSON object based on the teacher's feedback. Focus exclusively on improving the rubric — the scoring level descriptions, criterion names, and score boundaries.
+
+RULES:
+- Preserve the number of criteria and their ids unless the feedback explicitly asks to add, remove, or restructure criteria.
+- Preserve score ranges (min/max) unless the feedback explicitly asks to change the scoring scale.
+- Make level descriptions specific, observable, and distinguishable from adjacent levels. Avoid vague language.
+- Each level description should clearly describe what student work at that level looks like — not just restate the criterion name.
+- Higher levels should require demonstrably stronger evidence than lower levels.
+- Return ONLY valid JSON, no markdown fences, no explanation.
+
+CURRENT RUBRIC:
+${JSON.stringify(criteria, null, 2)}
+
+TEACHER FEEDBACK:
+${feedback}
+
+Return ONLY one valid JSON object in this exact shape (do NOT return a bare array):
+{
+  "criteria": [
+    {
+      "id": number,
+      "name": "string",
+      "scoreRange": { "min": number, "max": number },
+      "levels": [{ "score": number, "description": "string" }]
+    }
+  ]
+}
+The response MUST start with { and contain a "criteria" key.`;
+}
+
+export function buildOptimizeFeedbackSettingPrompt(currentInstruction: string, feedback: string): string {
+  return `You are an expert prompt engineer for AI-powered essay grading feedback.
+
+Your task: revise the "additional feedback instruction" text that guides how the AI writes its feedback to students. This instruction controls tone, style, structure, and focus of the grading feedback.
+
+RULES:
+- The instruction should be clear, specific, and actionable for an AI grading system.
+- Keep it concise — ideally 2-5 sentences. Avoid redundancy.
+- Address the teacher's feedback directly. If they want more encouraging language, adjust the tone guidance. If they want more critical feedback, adjust accordingly.
+- The instruction may cover: tone (supportive, critical, neutral), structure (what to mention first/last), focus areas (evidence quality, reasoning, specific skills), language level, and any special requirements.
+- Return ONLY valid JSON, no markdown fences, no explanation.
+
+CURRENT INSTRUCTION:
+"${currentInstruction}"
+
+TEACHER FEEDBACK:
+${feedback}
+
+Return ONLY a JSON object:
+{
+  "feedbackInstructionText": "string"
+}`;
+}
+
 export function buildOptimizeSuggestionsPrompt(params: {
   currentConfig: Record<string, unknown>;
   essays?: Array<{ text: string }>;

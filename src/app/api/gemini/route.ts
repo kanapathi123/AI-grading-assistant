@@ -16,6 +16,8 @@ import {
 } from '@/lib/grading-prompt-system';
 import {
   buildOptimizeConfigPrompt,
+  buildOptimizeRubricPrompt,
+  buildOptimizeFeedbackSettingPrompt,
   buildOptimizeSuggestionsPrompt,
   extractOptimizationSuggestions,
   normalizeOptimizedPromptConfig as normalizeOptimizedPromptConfigFromService,
@@ -276,6 +278,18 @@ export async function POST(request: NextRequest) {
             feedback: string;
             modelOverride?: string;
           }
+        );
+      case 'playgroundOptimizeRubric':
+        if (!Array.isArray(payload.criteria)) return badRequest('payload.criteria must be an array');
+        if (!asString(payload.feedback)) return badRequest('payload.feedback must be a string');
+        return handlePlaygroundOptimizeRubric(
+          payload as { criteria: unknown[]; feedback: string; modelOverride?: string }
+        );
+      case 'playgroundOptimizeFeedbackSetting':
+        if (typeof payload.feedbackInstructionText !== 'string') return badRequest('payload.feedbackInstructionText must be a string');
+        if (!asString(payload.feedback)) return badRequest('payload.feedback must be a string');
+        return handlePlaygroundOptimizeFeedbackSetting(
+          payload as { feedbackInstructionText: string; feedback: string; modelOverride?: string }
         );
       case 'playgroundOptimizeSuggestions':
         if (!isObject(payload.currentConfig)) return badRequest('payload.currentConfig must be an object');
@@ -894,6 +908,75 @@ async function handlePlaygroundOptimizeConfig(payload: {
 
   const normalized = normalizeOptimizedPromptConfigFromService(parsed, payload.currentConfig);
   return NextResponse.json({ result: { revisedConfig: normalized } });
+}
+
+async function handlePlaygroundOptimizeRubric(payload: {
+  criteria: unknown[];
+  feedback: string;
+  modelOverride?: string;
+}) {
+  const modelSelection = resolveModelSelection(payload.modelOverride);
+  const prompt = buildOptimizeRubricPrompt(payload.criteria, payload.feedback);
+  console.log(`[PlaygroundOptimizeRubric] Prompt\n${prompt}`);
+
+  const maxTokens = isThinkingModel(modelSelection) ? 8192 : 4096;
+  const raw = await callModel(prompt, modelSelection, maxTokens, 0.2);
+  const rawStr = typeof raw === 'string' ? raw : String(raw ?? '');
+  console.log(`[PlaygroundOptimizeRubric] Raw output (${rawStr.length} chars)\n${rawStr.slice(0, 500)}`);
+
+  if (!rawStr) {
+    return NextResponse.json({ error: 'Empty response from AI' }, { status: 500 });
+  }
+
+  const parsed = parseJsonObjectFromModelOutput(rawStr);
+  
+  // The LLM might return a JSON array directly instead of {criteria: [...]}
+  let criteria: unknown[] | null = null;
+  if (parsed && Array.isArray(parsed.criteria)) {
+    criteria = parsed.criteria;
+  } else {
+    // Try parsing as a raw JSON array
+    try {
+      const trimmed = rawStr.trim().replace(/```json\s*/g, '').replace(/```\s*$/g, '').trim();
+      if (trimmed.startsWith('[')) {
+        const arr = JSON.parse(trimmed);
+        if (Array.isArray(arr) && arr.length > 0) criteria = arr;
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (!Array.isArray(criteria) || criteria.length === 0) {
+    console.error(`[PlaygroundOptimizeRubric] No criteria array found. Parsed keys: ${parsed ? Object.keys(parsed).join(', ') : 'null'}`);
+    return NextResponse.json({ error: 'Invalid rubric optimization response', debug: rawStr.slice(0, 1000) }, { status: 502 });
+  }
+
+  return NextResponse.json({ result: { criteria } });
+}
+
+async function handlePlaygroundOptimizeFeedbackSetting(payload: {
+  feedbackInstructionText: string;
+  feedback: string;
+  modelOverride?: string;
+}) {
+  const modelSelection = resolveModelSelection(payload.modelOverride);
+  const prompt = buildOptimizeFeedbackSettingPrompt(payload.feedbackInstructionText, payload.feedback);
+  console.log(`[PlaygroundOptimizeFeedback] Prompt\n${prompt}`);
+
+  const maxTokens = isThinkingModel(modelSelection) ? 4096 : 2048;
+  const raw = await callModel(prompt, modelSelection, maxTokens, 0.2);
+  const rawStr = typeof raw === 'string' ? raw : String(raw ?? '');
+
+  if (!rawStr) {
+    return NextResponse.json({ error: 'Empty response from AI' }, { status: 500 });
+  }
+
+  const parsed = parseJsonObjectFromModelOutput(rawStr);
+  if (!parsed || typeof parsed.feedbackInstructionText !== 'string') {
+    console.error(`[PlaygroundOptimizeFeedback] Parse failed. Raw: ${rawStr.slice(0, 300)}`);
+    return NextResponse.json({ error: 'Invalid feedback optimization response' }, { status: 502 });
+  }
+
+  return NextResponse.json({ result: { feedbackInstructionText: parsed.feedbackInstructionText } });
 }
 
 async function handlePlaygroundOptimizeSuggestions(payload: {

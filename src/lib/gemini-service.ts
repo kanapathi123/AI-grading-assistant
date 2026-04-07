@@ -270,6 +270,26 @@ export const optimizePlaygroundConfig = async (
   return { revisedConfig };
 };
 
+export const optimizePlaygroundRubric = async (
+  criteria: unknown[],
+  feedback: string,
+): Promise<{ criteria: unknown[] }> => {
+  const result = await callApi('playgroundOptimizeRubric', { criteria, feedback });
+  const revised = result?.criteria;
+  if (!Array.isArray(revised)) throw new Error('Optimization response did not include criteria');
+  return { criteria: revised };
+};
+
+export const optimizePlaygroundFeedbackSetting = async (
+  feedbackInstructionText: string,
+  feedback: string,
+): Promise<{ feedbackInstructionText: string }> => {
+  const result = await callApi('playgroundOptimizeFeedbackSetting', { feedbackInstructionText, feedback });
+  const revised = result?.feedbackInstructionText;
+  if (typeof revised !== 'string') throw new Error('Optimization response did not include feedbackInstructionText');
+  return { feedbackInstructionText: revised };
+};
+
 /**
  * Grade an essay using prompt slots and style derived from a config.
  */

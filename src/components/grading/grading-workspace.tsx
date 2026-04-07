@@ -401,7 +401,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
 
   /* ---- UI state ---- */
   const [isProcessingRubric, setIsProcessingRubric] = useState<boolean>(false);
-  const [rubricCreationMode, setRubricCreationMode] = useState<'manual' | 'paste' | 'upload' | 'import'>('manual');
+  const [rubricCreationMode, setRubricCreationMode] = useState<'manual' | 'paste' | 'upload' | 'import'>('import');
   const [playgroundSets, setPlaygroundSets] = useState<PlaygroundSet[]>([]);
   const [selectedPlaygroundSetId, setSelectedPlaygroundSetId] = useState<string>('');
   const [settingsSelectedSetId, setSettingsSelectedSetId] = useState<string>('');
