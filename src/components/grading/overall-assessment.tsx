@@ -1,15 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
-import { RotateCcw, CheckCircle, FileText, ListChecks, FileUp } from 'lucide-react';
+import { RotateCcw, CheckCircle, FileText, FileUp } from 'lucide-react';
 import { Assessment, OverallAssessmentResult } from '@/types';
 
 interface OverallAssessmentProps {
   overallAssessment: OverallAssessmentResult;
   criteriaAssessments: Assessment[];
   teacherScores: Record<string, number | null>;
+  handleTeacherScoreInput: (criterionName: string, score: number) => void;
   restartGrading: () => void;
-  onRevisitCriteria?: () => void;
   onGradeNextEssay?: () => void;
 }
 
@@ -17,20 +17,15 @@ export default function OverallAssessment({
   overallAssessment,
   criteriaAssessments,
   teacherScores,
+  handleTeacherScoreInput,
   restartGrading,
-  onRevisitCriteria,
   onGradeNextEssay,
 }: OverallAssessmentProps) {
   const [strengths, setStrengths] = useState(overallAssessment.strengths);
   const [improvements, setImprovements] = useState(overallAssessment.improvements);
   const [advice, setAdvice] = useState(overallAssessment.advice);
 
-  function getFinalScore(criterion: Assessment): string {
-    const tScore = teacherScores[criterion.name];
-    return tScore != null ? String(tScore) : '-';
-  }
-
-  /* Compute average teacher score out of 5 */
+  /* Compute average teacher score */
   const teacherScoreValues = criteriaAssessments
     .map((c) => teacherScores[c.name])
     .filter((s): s is number => s != null);
@@ -50,7 +45,7 @@ export default function OverallAssessment({
           Grading Complete
         </h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Review and edit your final assessment below
+          Review your final assessment below. Click any score to adjust it.
         </p>
       </div>
 
@@ -96,7 +91,7 @@ export default function OverallAssessment({
         />
       </div>
 
-      {/* Overall Grade — average teacher score out of 5 */}
+      {/* Overall Grade */}
       <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <label className="mb-2 block text-sm font-semibold uppercase tracking-wider text-[#6366F1]">
           Overall Grade
@@ -141,27 +136,51 @@ export default function OverallAssessment({
               </tr>
             </thead>
             <tbody>
-              {criteriaAssessments.map((criterion) => (
-                <tr
-                  key={criterion.id}
-                  className="border-b border-gray-50 transition-colors hover:bg-gray-50 dark:border-slate-700/50 dark:hover:bg-slate-700/30"
-                >
-                  <td className="px-5 py-3 text-sm font-medium text-[#1E1B4B] dark:text-[#E2E8F0]">
-                    {criterion.name}
-                  </td>
-                  <td className="px-5 py-3 text-center text-sm font-semibold text-[#6366F1]">
-                    {teacherScores[criterion.name] ?? '-'}
-                  </td>
-                  <td className="px-5 py-3 text-center text-sm font-semibold text-[#818CF8]">
-                    {criterion.aiScore ?? '-'}
-                  </td>
-                  <td className="px-5 py-3 text-center">
-                    <span className="inline-flex items-center justify-center rounded-full bg-indigo-100 px-3 py-1 text-sm font-bold text-[#6366F1] dark:bg-indigo-900/40 dark:text-[#818CF8]">
-                      {getFinalScore(criterion)}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {criteriaAssessments.map((criterion) => {
+                const currentScore = teacherScores[criterion.name];
+                const scoreButtons = Array.from(
+                  { length: criterion.scoreRange.max - criterion.scoreRange.min + 1 },
+                  (_, i) => criterion.scoreRange.min + i
+                );
+                return (
+                  <tr
+                    key={criterion.id}
+                    className="border-b border-gray-50 transition-colors hover:bg-gray-50 dark:border-slate-700/50 dark:hover:bg-slate-700/30"
+                  >
+                    <td className="px-5 py-3 text-sm font-medium text-[#1E1B4B] dark:text-[#E2E8F0]">
+                      {criterion.name}
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1 flex-wrap">
+                        {scoreButtons.map((score) => {
+                          const isActive = currentScore === score;
+                          return (
+                            <button
+                              key={score}
+                              onClick={() => handleTeacherScoreInput(criterion.name, score)}
+                              className={`h-7 w-7 rounded-full text-xs font-semibold transition-colors cursor-pointer ${
+                                isActive
+                                  ? 'bg-[#6366F1] text-white'
+                                  : 'border border-gray-300 bg-white text-gray-500 hover:border-[#6366F1] hover:text-[#6366F1] dark:border-slate-600 dark:bg-slate-700 dark:text-gray-400'
+                              }`}
+                            >
+                              {score}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-center text-sm font-semibold text-[#818CF8]">
+                      {criterion.aiScore ?? '-'}
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      <span className="inline-flex items-center justify-center rounded-full bg-indigo-100 px-3 py-1 text-sm font-bold text-[#6366F1] dark:bg-indigo-900/40 dark:text-[#818CF8]">
+                        {currentScore != null ? String(currentScore) : '-'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -169,13 +188,6 @@ export default function OverallAssessment({
 
       {/* Action buttons */}
       <div className="flex flex-wrap items-center justify-center gap-4 pb-8">
-        <button
-          onClick={onRevisitCriteria}
-          className="cursor-pointer inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-5 py-2.5 text-sm font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:text-gray-300 dark:hover:bg-slate-700"
-        >
-          <ListChecks className="h-4 w-4" />
-          Revisit Criteria
-        </button>
         <button
           onClick={restartGrading}
           className="cursor-pointer inline-flex items-center gap-2 rounded-lg border border-[#6366F1] bg-white px-5 py-2.5 text-sm font-medium text-[#6366F1] shadow-sm transition-colors hover:bg-indigo-50 dark:border-[#818CF8] dark:bg-slate-800 dark:text-[#818CF8] dark:hover:bg-slate-700"

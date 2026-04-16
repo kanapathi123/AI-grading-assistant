@@ -856,17 +856,6 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
   }, [cacheName]);
 
   /* -------------------------------------------------------------------------- */
-  /*  revisitCriteria — goes back to rubric step                                 */
-  /* -------------------------------------------------------------------------- */
-
-  const revisitCriteria = useCallback(() => {
-    // Invalidate cache since rubric may change
-    if (cacheName) deleteRubricCache(cacheName).catch(() => {});
-    setCacheName(null);
-    setCurrentStep('rubric');
-  }, [cacheName]);
-
-  /* -------------------------------------------------------------------------- */
   /*  updateHallucinationCounts                                                  */
   /* -------------------------------------------------------------------------- */
 
@@ -1346,7 +1335,6 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
                 activePdfEvidence={activePdfEvidence}
                 setActivePdfEvidence={setActivePdfEvidence}
                 setAssessmentType={setAssessmentType}
-                onRevisitCriteria={revisitCriteria}
                 onGradeNextEssay={gradeNextEssay}
                 onHallucinationUpdate={updateHallucinationCounts}
               />

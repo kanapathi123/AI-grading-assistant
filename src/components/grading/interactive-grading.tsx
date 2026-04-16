@@ -64,7 +64,6 @@ export interface InteractiveGradingProps {
   setAssessmentType: (type: AssessmentType) => void;
 
   /* new navigation callbacks */
-  onRevisitCriteria?: () => void;
   onGradeNextEssay?: () => void;
   onHallucinationUpdate?: (criterionName: string, counts: { detected: number; confirmed: number; reported: number }) => void;
 }
@@ -99,7 +98,6 @@ export default function InteractiveGrading({
   activePdfEvidence,
   setActivePdfEvidence,
   setAssessmentType,
-  onRevisitCriteria,
   onGradeNextEssay,
   onHallucinationUpdate,
 }: InteractiveGradingProps) {
@@ -324,8 +322,8 @@ export default function InteractiveGrading({
         overallAssessment={overallAssessment}
         criteriaAssessments={assessmentsArray}
         teacherScores={teacherScores}
+        handleTeacherScoreInput={handleTeacherScoreInput}
         restartGrading={restartGrading}
-        onRevisitCriteria={onRevisitCriteria}
         onGradeNextEssay={onGradeNextEssay}
       />
     );
