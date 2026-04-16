@@ -29,6 +29,7 @@ export interface Assessment extends Criterion {
   score: number;
   aiScore: number | null;
   originalAiScore: number | null;
+  originalJustification?: string | null;
   revisionRationale: string | null;
   revisedAssessmentText: string | null;
   revisions?: Assessment[];
@@ -73,6 +74,8 @@ export interface GradeRecord {
   assessment_was_edited: boolean;
   original_ai_score: number | null;
   edited_justification_text: string | null;
+  original_ai_feedback: string | null;
+  final_feedback: string | null;
   avg_teacher_score_for_criterion: number | null;
 }
 

@@ -24,6 +24,8 @@ const CSV_HEADERS = [
   'assessment_was_edited',
   'original_ai_score',
   'edited_justification_text',
+  'original_ai_feedback',
+  'final_feedback',
   'avg_teacher_score_for_criterion',
 ] as const;
 

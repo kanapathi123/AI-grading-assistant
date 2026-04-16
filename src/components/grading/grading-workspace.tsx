@@ -391,6 +391,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
   const [showAIScores, setShowAIScores] = useState<Record<string, boolean>>({});
   const [gradingComplete, setGradingComplete] = useState<boolean>(false);
   const [overallAssessment, setOverallAssessment] = useState<OverallAssessmentResult | null>(null);
+  const [originalOverallAssessment, setOriginalOverallAssessment] = useState<OverallAssessmentResult | null>(null);
 
   /* ---- settings state ---- */
   const [contextList, setContextList] = useState<ContextItem[]>([]);
@@ -571,6 +572,9 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
           score: result.score ?? criterion.scoreRange.min,
           aiScore: result.score,
           originalAiScore: result.score,
+          originalJustification: typeof result.justification === 'string'
+            ? result.justification
+            : Array.isArray(result.justification) ? result.justification.join('\n') : null,
           revisionRationale: null,
           revisedAssessmentText: null,
           error: result.error,
@@ -674,6 +678,10 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
         assessment_was_edited: assessment.revisedAssessmentText !== null,
         original_ai_score: assessment.originalAiScore,
         edited_justification_text: assessment.revisedAssessmentText ?? null,
+        original_ai_feedback: assessment.originalJustification ?? null,
+        final_feedback: typeof assessment.justification === 'string'
+          ? assessment.justification
+          : assessment.justification.join('\n'),
       });
     }
 
@@ -751,6 +759,10 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
           assessment_was_edited: assessment.revisedAssessmentText !== null,
           original_ai_score: assessment.originalAiScore,
           edited_justification_text: assessment.revisedAssessmentText ?? null,
+          original_ai_feedback: assessment.originalJustification ?? null,
+          final_feedback: typeof assessment.justification === 'string'
+            ? assessment.justification
+            : assessment.justification.join('\n'),
         });
       }
     }
@@ -775,6 +787,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
       );
 
       setOverallAssessment(overall);
+      setOriginalOverallAssessment(overall);
       setGradingComplete(true);
       setCurrentStep('complete');
     } catch (err) {
@@ -801,6 +814,43 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
   /*  restartGrading                                                             */
   /* -------------------------------------------------------------------------- */
 
+  const handleFinalOverall = useCallback((edited: { strengths: string; improvements: string; advice: string }) => {
+    if (!recorder || !originalOverallAssessment) return;
+    const essayId = essayFileName || '';
+    const pairs = [
+      { action: 'overall_strengths', original: originalOverallAssessment.strengths, final: edited.strengths },
+      { action: 'overall_improvements', original: originalOverallAssessment.improvements, final: edited.improvements },
+      { action: 'overall_advice', original: originalOverallAssessment.advice, final: edited.advice },
+    ];
+    for (const p of pairs) {
+      recorder.addGradeRecord({
+        essay_id: essayId,
+        criterion_name: p.action,
+        criterion_id: '0',
+        score_min: 0,
+        score_max: 0,
+        teacher_score: null,
+        ai_score: null,
+        revised_ai_score: null,
+        score_difference: null,
+        assessment_type: assessmentType,
+        assessment_length: assessmentLength,
+        hallucination_threshold: hallucinationThreshold,
+        evidence_count: 0,
+        time_spent_seconds: null,
+        hallucinations_detected: 0,
+        hallucinations_confirmed: 0,
+        hallucinations_reported: 0,
+        action_type: p.action,
+        assessment_was_edited: p.original !== p.final,
+        original_ai_score: null,
+        edited_justification_text: null,
+        original_ai_feedback: p.original,
+        final_feedback: p.final,
+      });
+    }
+  }, [recorder, originalOverallAssessment, essayFileName, assessmentType, assessmentLength, hallucinationThreshold]);
+
   const restartGrading = useCallback(() => {
     // Clean up cache on full restart
     if (cacheName) deleteRubricCache(cacheName).catch(() => {});
@@ -818,6 +868,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     setShowAIScores({});
     setGradingComplete(false);
     setOverallAssessment(null);
+    setOriginalOverallAssessment(null);
     setContextList([]);
     setAssessmentType('flow');
     setAssessmentLength('medium');
@@ -848,6 +899,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
     setShowAIScores({});
     setGradingComplete(false);
     setOverallAssessment(null);
+    setOriginalOverallAssessment(null);
     setIsProcessingRubric(false);
     setCriterionStartTime(null);
     setActivePdfEvidence(null);
@@ -1336,6 +1388,7 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
                 setActivePdfEvidence={setActivePdfEvidence}
                 setAssessmentType={setAssessmentType}
                 onGradeNextEssay={gradeNextEssay}
+                onFinalOverall={handleFinalOverall}
                 onHallucinationUpdate={updateHallucinationCounts}
               />
             </motion.div>

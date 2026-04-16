@@ -65,6 +65,7 @@ export interface InteractiveGradingProps {
 
   /* new navigation callbacks */
   onGradeNextEssay?: () => void;
+  onFinalOverall?: (edited: { strengths: string; improvements: string; advice: string }) => void;
   onHallucinationUpdate?: (criterionName: string, counts: { detected: number; confirmed: number; reported: number }) => void;
 }
 
@@ -99,6 +100,7 @@ export default function InteractiveGrading({
   setActivePdfEvidence,
   setAssessmentType,
   onGradeNextEssay,
+  onFinalOverall,
   onHallucinationUpdate,
 }: InteractiveGradingProps) {
   /* ---- internal state ---- */
@@ -325,6 +327,7 @@ export default function InteractiveGrading({
         handleTeacherScoreInput={handleTeacherScoreInput}
         restartGrading={restartGrading}
         onGradeNextEssay={onGradeNextEssay}
+        onFinalOverall={onFinalOverall}
       />
     );
   }

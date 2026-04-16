@@ -11,6 +11,7 @@ interface OverallAssessmentProps {
   handleTeacherScoreInput: (criterionName: string, score: number) => void;
   restartGrading: () => void;
   onGradeNextEssay?: () => void;
+  onFinalOverall?: (edited: { strengths: string; improvements: string; advice: string }) => void;
 }
 
 export default function OverallAssessment({
@@ -20,6 +21,7 @@ export default function OverallAssessment({
   handleTeacherScoreInput,
   restartGrading,
   onGradeNextEssay,
+  onFinalOverall,
 }: OverallAssessmentProps) {
   const [strengths, setStrengths] = useState(overallAssessment.strengths);
   const [improvements, setImprovements] = useState(overallAssessment.improvements);
@@ -189,14 +191,20 @@ export default function OverallAssessment({
       {/* Action buttons */}
       <div className="flex flex-wrap items-center justify-center gap-4 pb-8">
         <button
-          onClick={restartGrading}
+          onClick={() => {
+            onFinalOverall?.({ strengths, improvements, advice });
+            restartGrading();
+          }}
           className="cursor-pointer inline-flex items-center gap-2 rounded-lg border border-[#6366F1] bg-white px-5 py-2.5 text-sm font-medium text-[#6366F1] shadow-sm transition-colors hover:bg-indigo-50 dark:border-[#818CF8] dark:bg-slate-800 dark:text-[#818CF8] dark:hover:bg-slate-700"
         >
           <RotateCcw className="h-4 w-4" />
           Grade Again
         </button>
         <button
-          onClick={onGradeNextEssay}
+          onClick={() => {
+            onFinalOverall?.({ strengths, improvements, advice });
+            onGradeNextEssay?.();
+          }}
           className="cursor-pointer inline-flex items-center gap-2 rounded-lg bg-[#6366F1] px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-600"
         >
           <FileUp className="h-4 w-4" />
