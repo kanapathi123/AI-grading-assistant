@@ -679,9 +679,12 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
         original_ai_score: assessment.originalAiScore,
         edited_justification_text: assessment.revisedAssessmentText ?? null,
         original_ai_feedback: assessment.originalJustification ?? null,
-        final_feedback: typeof assessment.justification === 'string'
-          ? assessment.justification
-          : assessment.justification.join('\n'),
+        ai_strengths: null,
+        final_strengths: null,
+        ai_improvements: null,
+        final_improvements: null,
+        ai_advice: null,
+        final_advice: null,
       });
     }
 
@@ -760,9 +763,12 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
           original_ai_score: assessment.originalAiScore,
           edited_justification_text: assessment.revisedAssessmentText ?? null,
           original_ai_feedback: assessment.originalJustification ?? null,
-          final_feedback: typeof assessment.justification === 'string'
-            ? assessment.justification
-            : assessment.justification.join('\n'),
+          ai_strengths: null,
+          final_strengths: null,
+          ai_improvements: null,
+          final_improvements: null,
+          ai_advice: null,
+          final_advice: null,
         });
       }
     }
@@ -816,39 +822,40 @@ export default function GradingWorkspace({ recorder }: GradingWorkspaceProps) {
 
   const handleFinalOverall = useCallback((edited: { strengths: string; improvements: string; advice: string }) => {
     if (!recorder || !originalOverallAssessment) return;
-    const essayId = essayFileName || '';
-    const pairs = [
-      { action: 'overall_strengths', original: originalOverallAssessment.strengths, final: edited.strengths },
-      { action: 'overall_improvements', original: originalOverallAssessment.improvements, final: edited.improvements },
-      { action: 'overall_advice', original: originalOverallAssessment.advice, final: edited.advice },
-    ];
-    for (const p of pairs) {
-      recorder.addGradeRecord({
-        essay_id: essayId,
-        criterion_name: p.action,
-        criterion_id: '0',
-        score_min: 0,
-        score_max: 0,
-        teacher_score: null,
-        ai_score: null,
-        revised_ai_score: null,
-        score_difference: null,
-        assessment_type: assessmentType,
-        assessment_length: assessmentLength,
-        hallucination_threshold: hallucinationThreshold,
-        evidence_count: 0,
-        time_spent_seconds: null,
-        hallucinations_detected: 0,
-        hallucinations_confirmed: 0,
-        hallucinations_reported: 0,
-        action_type: p.action,
-        assessment_was_edited: p.original !== p.final,
-        original_ai_score: null,
-        edited_justification_text: null,
-        original_ai_feedback: p.original,
-        final_feedback: p.final,
-      });
-    }
+    // Write one combined overall-assessment row with before/after for all three fields
+    recorder.addGradeRecord({
+      essay_id: essayFileName || '',
+      criterion_name: 'overall_assessment',
+      criterion_id: '0',
+      score_min: 0,
+      score_max: 0,
+      teacher_score: null,
+      ai_score: null,
+      revised_ai_score: null,
+      score_difference: null,
+      assessment_type: assessmentType,
+      assessment_length: assessmentLength,
+      hallucination_threshold: hallucinationThreshold,
+      evidence_count: 0,
+      time_spent_seconds: null,
+      hallucinations_detected: 0,
+      hallucinations_confirmed: 0,
+      hallucinations_reported: 0,
+      action_type: 'overall_assessment',
+      assessment_was_edited:
+        originalOverallAssessment.strengths !== edited.strengths ||
+        originalOverallAssessment.improvements !== edited.improvements ||
+        originalOverallAssessment.advice !== edited.advice,
+      original_ai_score: null,
+      edited_justification_text: null,
+      original_ai_feedback: null,
+      ai_strengths: originalOverallAssessment.strengths,
+      final_strengths: edited.strengths,
+      ai_improvements: originalOverallAssessment.improvements,
+      final_improvements: edited.improvements,
+      ai_advice: originalOverallAssessment.advice,
+      final_advice: edited.advice,
+    });
   }, [recorder, originalOverallAssessment, essayFileName, assessmentType, assessmentLength, hallucinationThreshold]);
 
   const restartGrading = useCallback(() => {

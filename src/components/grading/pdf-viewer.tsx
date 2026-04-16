@@ -42,6 +42,16 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Normalize text for matching: lowercase, collapse whitespace, unify quotes/dashes */
+function normalizeForPdfMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[\u201c\u201d\u2018\u2019\u201e\u201f]/g, '"') // smart quotes → straight
+    .replace(/[\u2014\u2013\u2012]/g, '-')                    // em/en dashes → hyphen
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export default function PdfViewer({ url, highlights = [], disableTextLayer = false, initialScale = 1.0 }: PdfViewerProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState<number>(1);
@@ -104,55 +114,66 @@ export default function PdfViewer({ url, highlights = [], disableTextLayer = fal
 
       const map = new Map<number, string>();
 
-      // Build full page text, tracking each item's character range
-      let fullText = '';
-      const itemRanges: { start: number; end: number }[] = [];
+      // Build normalized full text, tracking each item's range in normalized space.
+      // Skip empty items so they don't create stray spaces that break substring matching.
+      let normFullText = '';
+      const normItemRanges: { start: number; end: number; itemIdx: number }[] = [];
       for (let i = 0; i < items.length; i++) {
-        const start = fullText.length;
-        fullText += items[i];
-        itemRanges.push({ start, end: fullText.length });
-        fullText += ' ';
+        const norm = normalizeForPdfMatch(items[i]);
+        if (norm.length === 0) continue; // skip whitespace-only items
+        const start = normFullText.length;
+        normFullText += norm;
+        normItemRanges.push({ start, end: normFullText.length, itemIdx: i });
+        normFullText += ' ';
       }
 
       for (const hl of highlights) {
-        const words = hl.text.trim().split(/\s+/).filter((w) => w.length > 0);
+        const normQuote = normalizeForPdfMatch(hl.text);
+        const words = normQuote.split(/\s+/).filter((w) => w.length > 0);
         if (words.length < 3) continue;
 
-        // Try full match first, then fall back to a shorter prefix if the quote is long
-        const attempts: string[][] = [words];
-        if (words.length > 12) {
-          // For long quotes, also try just the first 10 words as a fallback
-          attempts.push(words.slice(0, 10));
+        let matchStart = -1;
+        let matchEnd = -1;
+
+        // Try 1: exact normalized substring match (most accurate, no false positives)
+        const exactIdx = normFullText.indexOf(normQuote);
+        if (exactIdx !== -1) {
+          matchStart = exactIdx;
+          matchEnd = exactIdx + normQuote.length;
         }
 
-        let matched = false;
-        for (const attempt of attempts) {
-          if (matched) break;
-          // Regex: each word with flexible whitespace/punctuation between
-          const pattern = attempt.map((w) => escapeRegExp(w)).join('[\\s\\S]{0,20}');
-          try {
-            const regex = new RegExp(pattern, 'gi');
-            let match;
-            while ((match = regex.exec(fullText)) !== null) {
-              matched = true;
-              const matchStart = match.index;
-              const matchEnd = matchStart + match[0].length;
+        // Try 2: word-by-word regex — whitespace gaps only (no arbitrary chars).
+        // \\s+ allows any whitespace between words but never crosses into unrelated text.
+        if (matchStart === -1) {
+          const attempts: string[][] = [words];
+          if (words.length > 12) {
+            attempts.push(words.slice(0, 10));
+          }
 
-              // Mark every text item overlapping this range
-              for (let i = 0; i < itemRanges.length; i++) {
-                const r = itemRanges[i];
-                if (r.end > matchStart && r.start < matchEnd && items[i].trim().length > 0) {
-                  if (!map.has(i)) {
-                    map.set(i, hl.criterionName);
-                  }
-                }
+          for (const attempt of attempts) {
+            if (matchStart !== -1) break;
+            const pattern = attempt.map((w) => escapeRegExp(w)).join('\\s+');
+            try {
+              // String.match() without g flag returns index
+              const found = normFullText.match(new RegExp(pattern, 'i'));
+              if (found && found.index !== undefined) {
+                matchStart = found.index;
+                matchEnd = matchStart + found[0].length;
               }
-
-              regex.lastIndex = matchEnd;
-              if (match[0].length === 0) break;
+            } catch {
+              // Regex too complex, skip
             }
-          } catch {
-            // Regex too complex, skip
+          }
+        }
+
+        if (matchStart === -1) continue;
+
+        // Mark every item whose normalized range overlaps the match, using original itemIdx
+        for (const r of normItemRanges) {
+          if (r.end > matchStart && r.start < matchEnd) {
+            if (!map.has(r.itemIdx)) {
+              map.set(r.itemIdx, hl.criterionName);
+            }
           }
         }
       }

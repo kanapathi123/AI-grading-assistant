@@ -75,7 +75,12 @@ export interface GradeRecord {
   original_ai_score: number | null;
   edited_justification_text: string | null;
   original_ai_feedback: string | null;
-  final_feedback: string | null;
+  ai_strengths: string | null;
+  final_strengths: string | null;
+  ai_improvements: string | null;
+  final_improvements: string | null;
+  ai_advice: string | null;
+  final_advice: string | null;
   avg_teacher_score_for_criterion: number | null;
 }
 
