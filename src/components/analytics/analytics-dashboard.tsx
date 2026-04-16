@@ -15,6 +15,65 @@ interface AnalyticsDashboardProps {
   records: GradeRecord[];
   teacherName: string;
   onDownloadCSV: () => void;
+  onUpdateTeacherScore: (index: number, newScore: number | null) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Inline-editable score cell
+// ---------------------------------------------------------------------------
+function EditableScoreCell({
+  value,
+  min,
+  max,
+  onSave,
+}: {
+  value: number | null;
+  min: number;
+  max: number;
+  onSave: (newScore: number | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value ?? ''));
+
+  function commit() {
+    const parsed = parseFloat(draft);
+    if (!isNaN(parsed) && parsed >= min && parsed <= max) {
+      onSave(parsed);
+    }
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <span
+        onClick={() => { setDraft(String(value ?? '')); setEditing(true); }}
+        className="cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
+        title="Click to edit score"
+        style={{ color: 'var(--foreground)' }}
+      >
+        {value ?? '-'}
+      </span>
+    );
+  }
+
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={1}
+      value={draft}
+      autoFocus
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') commit();
+        if (e.key === 'Escape') setEditing(false);
+      }}
+      className="w-16 rounded border border-indigo-300 bg-white px-1.5 py-0.5 text-center text-sm outline-none focus:ring-2 focus:ring-indigo-400 dark:border-indigo-600 dark:bg-slate-700"
+      style={{ color: 'var(--foreground)' }}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +113,7 @@ function StatCard({ label, value, icon, gradient, subtitle }: { label: string; v
 // ---------------------------------------------------------------------------
 // Session Data Tab
 // ---------------------------------------------------------------------------
-function SessionDataTab({ records, onDownloadCSV }: { records: GradeRecord[]; onDownloadCSV: () => void }) {
+function SessionDataTab({ records, onDownloadCSV, onUpdateTeacherScore }: { records: GradeRecord[]; onDownloadCSV: () => void; onUpdateTeacherScore: (index: number, newScore: number | null) => void }) {
   const stats = useMemo(() => {
     const n = records.length;
     const times = records.map(r => r.time_spent_seconds).filter((t): t is number => t !== null);
@@ -115,7 +174,14 @@ function SessionDataTab({ records, onDownloadCSV }: { records: GradeRecord[]; on
                   <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs" style={{ color: 'var(--muted)' }}>{new Date(r.timestamp).toLocaleTimeString()}</td>
                   <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs font-semibold" style={{ color: '#6366F1' }}>{r.essay_id}</td>
                   <td className="max-w-[160px] truncate px-4 py-2.5" style={{ color: 'var(--foreground)' }} title={r.criterion_name}>{r.criterion_name}</td>
-                  <td className="whitespace-nowrap px-4 py-2.5 text-center" style={{ color: 'var(--foreground)' }}>{r.teacher_score ?? '-'}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-center">
+                    <EditableScoreCell
+                      value={r.teacher_score}
+                      min={r.score_min}
+                      max={r.score_max}
+                      onSave={newScore => onUpdateTeacherScore(i, newScore)}
+                    />
+                  </td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-center" style={{ color: 'var(--foreground)' }}>{r.ai_score ?? '-'}</td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-center" style={{ color: 'var(--foreground)' }}>{r.revised_ai_score ?? '-'}</td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-center" style={{ color: 'var(--muted)' }}>{r.time_spent_seconds ?? '-'}</td>
@@ -580,7 +646,7 @@ function AgreementTab({ records }: { records: GradeRecord[] }) {
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
-export default function AnalyticsDashboard({ records, teacherName, onDownloadCSV }: AnalyticsDashboardProps) {
+export default function AnalyticsDashboard({ records, teacherName, onDownloadCSV, onUpdateTeacherScore }: AnalyticsDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('session');
 
   return (
@@ -615,7 +681,7 @@ export default function AnalyticsDashboard({ records, teacherName, onDownloadCSV
       {/* Tab content */}
       <AnimatePresence mode="wait">
         {activeTab === 'session' && (
-          <motion.div key="session" {...slide}><SessionDataTab records={records} onDownloadCSV={onDownloadCSV} /></motion.div>
+          <motion.div key="session" {...slide}><SessionDataTab records={records} onDownloadCSV={onDownloadCSV} onUpdateTeacherScore={onUpdateTeacherScore} /></motion.div>
         )}
         {activeTab === 'overview' && (
           <motion.div key="overview" {...slide}><OverviewTab records={records} /></motion.div>
