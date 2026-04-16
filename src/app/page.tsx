@@ -8,6 +8,7 @@ import TeacherGate from '@/components/teacher-gate';
 import Navbar from '@/components/navbar';
 import Dashboard from '@/components/dashboard';
 import PromptPlayground from '@/components/prompt-playground';
+import type { GradeRecord } from '@/types';
 
 const GradingWorkspace = dynamic(() => import('@/components/grading/grading-workspace'), { ssr: false });
 const AnalyticsDashboard = dynamic(() => import('@/components/analytics/analytics-dashboard'), { ssr: false });
@@ -24,12 +25,26 @@ const viewTransition = {
 export default function Home() {
   const { teacherName, setTeacherName, recorder } = useTeacherSession();
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  const [analyticsRecords, setAnalyticsRecords] = useState<GradeRecord[]>([]);
 
-  /* ---- CSV export ---- */
+  const refreshRecords = useCallback(() => {
+    if (recorder) setAnalyticsRecords(recorder.getRecords());
+  }, [recorder]);
 
   const handleExportCSV = useCallback(() => {
     recorder?.downloadCSV();
   }, [recorder]);
+
+  const handleUpdateTeacherScore = useCallback((index: number, newScore: number | null) => {
+    if (!recorder) return;
+    recorder.updateTeacherScore(index, newScore);
+    setAnalyticsRecords(recorder.getRecords());
+  }, [recorder]);
+
+  const handleNavigate = useCallback((view: ViewType) => {
+    if (view === 'analytics') refreshRecords();
+    setCurrentView(view);
+  }, [refreshRecords]);
 
   /* ---- Gate ---- */
 
@@ -41,42 +56,39 @@ export default function Home() {
     <div className="min-h-screen">
       <Navbar
         currentView={currentView}
-        onNavigate={setCurrentView}
+        onNavigate={handleNavigate}
         teacherName={teacherName}
         onExportCSV={handleExportCSV}
       />
 
       <main className="pt-4">
         <AnimatePresence mode="wait">
-          {/* Dashboard */}
           {currentView === 'dashboard' && (
             <motion.div key="dashboard" {...viewTransition}>
               <Dashboard
-                onNavigateToGrading={() => setCurrentView('grading')}
-                onNavigate={setCurrentView}
+                onNavigateToGrading={() => handleNavigate('grading')}
+                onNavigate={handleNavigate}
               />
             </motion.div>
           )}
 
-          {/* Grading */}
           {currentView === 'grading' && (
             <motion.div key="grading" {...viewTransition}>
               {recorder && <GradingWorkspace recorder={recorder} />}
             </motion.div>
           )}
 
-          {/* Analytics */}
           {currentView === 'analytics' && (
             <motion.div key="analytics" {...viewTransition}>
               <AnalyticsDashboard
-                records={recorder?.getRecords() ?? []}
+                records={analyticsRecords}
                 teacherName={teacherName}
                 onDownloadCSV={handleExportCSV}
+                onUpdateTeacherScore={handleUpdateTeacherScore}
               />
             </motion.div>
           )}
 
-          {/* Playground */}
           {currentView === 'playground' && (
             <motion.div key="playground" {...viewTransition}>
               <PromptPlayground />

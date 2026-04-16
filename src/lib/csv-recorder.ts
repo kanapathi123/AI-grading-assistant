@@ -73,6 +73,27 @@ export class CsvRecorder {
     return Math.round((sum / scores.length) * 100) / 100;
   }
 
+  updateTeacherScore(index: number, newScore: number | null): void {
+    const record = this.records[index];
+    if (!record) return;
+    record.teacher_score = newScore;
+    record.score_difference =
+      newScore !== null && record.ai_score !== null ? newScore - record.ai_score : null;
+    const criterionName = record.criterion_name;
+    const scores: number[] = this.records
+      .map(r => (r.criterion_name === criterionName ? r.teacher_score : null))
+      .filter((s): s is number => s !== null);
+    const avg = scores.length > 0
+      ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100
+      : null;
+    for (const r of this.records) {
+      if (r.criterion_name === criterionName) {
+        r.avg_teacher_score_for_criterion = avg;
+      }
+    }
+    this.saveToLocalStorage();
+  }
+
   getCSVContent(): string {
     const headerLine = CSV_HEADERS.join(',');
     const dataLines = this.records.map((record) =>
