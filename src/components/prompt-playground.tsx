@@ -245,10 +245,18 @@ type OptimizationIteration = {
   baselineConfig: BuilderPromptConfig;
   revisedConfig: BuilderPromptConfig;
   importedToBuilder?: boolean;
+  comparisonEssayText?: string;
   comparisonResults?: {
     baseline: TestResult[];
     revised: TestResult[];
   };
+  /** All comparison runs for this iteration (accumulates across different essays) */
+  allComparisonRuns?: Array<{
+    essayText: string;
+    baseline: TestResult[];
+    revised: TestResult[];
+    ranAt: string;
+  }>;
 };
 
 type IterationComparison = {
@@ -469,6 +477,8 @@ function normalizeSet(raw: EditableSet): EditableSet {
       feedbackSettingFeedback: iteration.feedbackSettingFeedback || '',
       importedToBuilder: iteration.importedToBuilder || false,
       comparisonResults: iteration.comparisonResults || undefined,
+      comparisonEssayText: iteration.comparisonEssayText || undefined,
+      allComparisonRuns: Array.isArray(iteration.allComparisonRuns) ? iteration.allComparisonRuns : undefined,
       baselineVersionId: iteration.baselineVersionId || null,
       baselineConfig: {
         ...fallback,
@@ -1150,10 +1160,82 @@ function IterationConfigReviewEditor({
         </summary>
         <div className="grid gap-3 border-t border-slate-200 px-4 pb-4 pt-3 lg:grid-cols-2">
           <div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Format</p>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {[
+                { value: 'paragraph' as const, label: 'Flow Text' },
+                { value: 'bullets' as const, label: 'Bullet Points' },
+              ].map((option) => (
+                <span
+                  key={`bl-fmt-${option.value}`}
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs ${baselineBehavior.format === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                >
+                  {option.label}
+                </span>
+              ))}
+            </div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Length</p>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {LENGTH_TAG_OPTIONS.map((option) => (
+                <span
+                  key={`bl-len-${option.value}`}
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs ${baselineBehavior.lengthPreset === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                >
+                  {option.label}
+                </span>
+              ))}
+            </div>
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
             <DiffTextPreview oldText={baselineInstruction} newText={revisedInstruction} mode="old" />
           </div>
           <div className="lg:pl-4">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Format</p>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {[
+                { value: 'paragraph' as const, label: 'Flow Text' },
+                { value: 'bullets' as const, label: 'Bullet Points' },
+              ].map((option) => (
+                isFeedbackEditing ? (
+                  <button
+                    key={`rv-fmt-${option.value}`}
+                    type="button"
+                    onClick={() => updateFeedbackBehavior({ format: option.value })}
+                    className={`rounded-full border px-3 py-1 text-xs ${revisedBehavior.format === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                  >
+                    {option.label}
+                  </button>
+                ) : (
+                  <span
+                    key={`rv-fmt-${option.value}`}
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs ${revisedBehavior.format === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                  >
+                    {option.label}
+                  </span>
+                )
+              ))}
+            </div>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Length</p>
+            <div className="mb-3 flex flex-wrap gap-2">
+              {LENGTH_TAG_OPTIONS.map((option) => (
+                isFeedbackEditing ? (
+                  <button
+                    key={`rv-len-${option.value}`}
+                    type="button"
+                    onClick={() => updateFeedbackBehavior({ lengthPreset: option.value })}
+                    className={`rounded-full border px-3 py-1 text-xs ${revisedBehavior.lengthPreset === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700 hover:bg-white'}`}
+                  >
+                    {option.label}
+                  </button>
+                ) : (
+                  <span
+                    key={`rv-len-${option.value}`}
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs ${revisedBehavior.lengthPreset === option.value ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300 bg-slate-100/80 text-slate-700'}`}
+                  >
+                    {option.label}
+                  </span>
+                )
+              ))}
+            </div>
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feedback Instructions</p>
             {isFeedbackEditing ? (
               <textarea
@@ -2387,10 +2469,13 @@ export default function PromptPlayground() {
     );
     const versionRows = versionsChronological.flatMap((v, i) => {
       const isCurrent = v.id === set.currentVersionId;
+      const behavior = getFeedbackBehavior(v.config);
       const header = [{
         Version: `Version ${i + 1}`,
         'Created At': new Date(v.createdAt).toLocaleString(),
         'Current Version': isCurrent ? 'Yes' : '',
+        'Feedback Format': behavior.format === 'bullets' ? 'Bullet Points' : 'Flow Text',
+        'Feedback Length': behavior.lengthPreset,
         'Feedback Instruction': v.config.feedbackInstructionText || '',
         Criterion: '',
         'Min Score': '',
@@ -2403,6 +2488,8 @@ export default function PromptPlayground() {
           Version: '',
           'Created At': '',
           'Current Version': '',
+          'Feedback Format': '',
+          'Feedback Length': '',
           'Feedback Instruction': '',
           Criterion: li === 0 ? c.name : '',
           'Min Score': li === 0 ? c.scoreRange.min : '',
@@ -2442,9 +2529,12 @@ export default function PromptPlayground() {
       // --- Optimizer Configs sheet (baseline + revised rubric & instruction per iteration) ---
       const configRows = iterationsChronological.flatMap((it, i) => {
         const formatCfgRows = (label: string, cfg: BuilderPromptConfig) => {
+          const behavior = getFeedbackBehavior(cfg);
           const headerRow = [{
             Iteration: i + 1,
             Side: label,
+            'Feedback Format': behavior.format === 'bullets' ? 'Bullet Points' : 'Flow Text',
+            'Feedback Length': behavior.lengthPreset,
             'Feedback Instruction': cfg.feedbackInstructionText || '',
             Criterion: '',
             'Min Score': '',
@@ -2456,6 +2546,8 @@ export default function PromptPlayground() {
             [...c.levels].sort((a, b) => b.score - a.score).map((lvl, li) => ({
               Iteration: '',
               Side: '',
+              'Feedback Format': '',
+              'Feedback Length': '',
               'Feedback Instruction': '',
               Criterion: li === 0 ? c.name : '',
               'Min Score': li === 0 ? c.scoreRange.min : '',
@@ -2474,26 +2566,60 @@ export default function PromptPlayground() {
       const wsCfg = XLSX.utils.json_to_sheet(configRows);
       XLSX.utils.book_append_sheet(wb, wsCfg, 'Optimizer Configs');
 
-      // --- Optimizer Grading Results sheet ---
+      // --- Optimizer Grading Results sheet (all runs across all essays) ---
       const gradingRows = iterationsChronological.flatMap((it, i) => {
-        if (!it.comparisonResults) return [];
-        const formatResults = (label: string, results: TestResult[]) =>
-          results.map((r) => ({
-            Iteration: i + 1,
-            Side: label,
-            Criterion: r.criterionName,
-            Score: r.score,
-            Feedback: r.justification.join(' '),
-            Evidence: r.evidenceQuotes.map((e) => e.quote).join(' | '),
-          }));
-        return [
-          ...formatResults('Baseline', it.comparisonResults.baseline),
-          ...formatResults('Revised', it.comparisonResults.revised),
-        ];
+        const runs = it.allComparisonRuns || [];
+        // Fall back to single comparisonResults for legacy data
+        const allRuns = runs.length > 0 ? runs : (it.comparisonResults ? [{
+          essayText: it.comparisonEssayText || '',
+          baseline: it.comparisonResults.baseline,
+          revised: it.comparisonResults.revised,
+          ranAt: '',
+        }] : []);
+
+        return allRuns.flatMap((run, runIdx) => {
+          const essayPreview = run.essayText.trim().slice(0, 100) + (run.essayText.trim().length > 100 ? '...' : '');
+          const formatResults = (label: string, results: TestResult[]) =>
+            results.map((r) => ({
+              Iteration: i + 1,
+              'Test Run': runIdx + 1,
+              Side: label,
+              'Essay (preview)': essayPreview,
+              Criterion: r.criterionName,
+              Score: r.score,
+              Feedback: r.justification.join(' '),
+              Evidence: r.evidenceQuotes.map((e) => e.quote).join(' | '),
+            }));
+          return [
+            ...formatResults('Baseline', run.baseline),
+            ...formatResults('Revised', run.revised),
+          ];
+        });
       });
       if (gradingRows.length > 0) {
         const wsGrading = XLSX.utils.json_to_sheet(gradingRows);
         XLSX.utils.book_append_sheet(wb, wsGrading, 'Optimizer Results');
+      }
+
+      // --- Optimizer Essays sheet (all essays tested across all iterations) ---
+      const essayRows = iterationsChronological.flatMap((it, i) => {
+        const runs = it.allComparisonRuns || [];
+        const allEssayTexts = runs.length > 0
+          ? runs.map((r) => r.essayText)
+          : it.comparisonEssayText ? [it.comparisonEssayText] : [];
+        // Deduplicate essays within the same iteration
+        const seen = new Set<string>();
+        return allEssayTexts
+          .filter((text) => { if (seen.has(text)) return false; seen.add(text); return true; })
+          .map((text, ei) => ({
+            Iteration: i + 1,
+            'Essay #': ei + 1,
+            'Essay Text': text,
+          }));
+      });
+      if (essayRows.length > 0) {
+        const wsEssays = XLSX.utils.json_to_sheet(essayRows);
+        XLSX.utils.book_append_sheet(wb, wsEssays, 'Optimizer Essays');
       }
     }
 
@@ -2525,6 +2651,8 @@ export default function PromptPlayground() {
           : null;
         const configLabel = configVersion ? configVersion.name : 'Unsaved config';
 
+        const behavior = modeConfig ? getFeedbackBehavior(modeConfig) : null;
+
         return results.flatMap((essayRuns, essayIdx) =>
           essayRuns.flatMap((runResults, runIdx) =>
             runResults.map((r) => ({
@@ -2532,6 +2660,8 @@ export default function PromptPlayground() {
               Essay: `Essay ${essayIdx + 1}`,
               Run: runIdx + 1,
               'Config Version': configLabel,
+              'Feedback Format': behavior ? (behavior.format === 'bullets' ? 'Bullet Points' : 'Flow Text') : '',
+              'Feedback Length': behavior?.lengthPreset || '',
               Criterion: r.criterionName,
               Score: r.score,
               Feedback: r.justification.join(' '),
@@ -2545,6 +2675,17 @@ export default function PromptPlayground() {
         const wsEssayGrading = XLSX.utils.json_to_sheet(essayGradingRows);
         XLSX.utils.book_append_sheet(wb, wsEssayGrading, 'Essay Grading');
       }
+    }
+
+    // --- Essays sheet (all essays from the playground) ---
+    const essayTexts = runtime?.essays?.filter((e) => e.text.trim()) || [];
+    if (essayTexts.length > 0) {
+      const playgroundEssayRows = essayTexts.map((e, i) => ({
+        Essay: `Essay ${i + 1}`,
+        'Text': e.text,
+      }));
+      const wsPlaygroundEssays = XLSX.utils.json_to_sheet(playgroundEssayRows);
+      XLSX.utils.book_append_sheet(wb, wsPlaygroundEssays, 'Essays');
     }
 
     XLSX.writeFile(wb, `${set.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_report.xlsx`);
@@ -2781,7 +2922,15 @@ export default function PromptPlayground() {
               ...row,
               optimizationIterations: row.optimizationIterations.map((it) =>
                 it.id === selectedIteration.id
-                  ? { ...it, comparisonResults: { baseline, revised } }
+                  ? {
+                      ...it,
+                      comparisonResults: { baseline, revised },
+                      comparisonEssayText: optimizerEssayText,
+                      allComparisonRuns: [
+                        ...(it.allComparisonRuns || []),
+                        { essayText: optimizerEssayText, baseline, revised, ranAt: new Date().toISOString() },
+                      ],
+                    }
                   : it
               ),
             };
